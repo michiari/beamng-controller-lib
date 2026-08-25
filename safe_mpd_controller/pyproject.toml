@@ -12,7 +12,6 @@ dependencies = [
     "beamng-controllers>=0.1.0",
     "beamngpy>=1.31",
     "matplotlib>=3.7",
-    "safe-mpd @ git+https://github.com/cps-atlas/safe-mpd.git",
     "shapely>=2.0",
 ]
 

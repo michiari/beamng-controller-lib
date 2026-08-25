@@ -16,8 +16,13 @@ the desired controller project:
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e ./beamng_controllers
+git clone https://github.com/cps-atlas/safe-mpd.git ../safe-mpd
+python -m pip install -e ../safe-mpd
 python -m pip install -e ./safe_mpd_controller
 ```
+
+Safe-MPD must be installed from an editable checkout: its current
+non-editable wheel omits planner subpackages required by this controller.
 
 The packages expose `beamng-vehicle-controller` and
 `beamng-safe-mpd-controller` command-line programs respectively.
