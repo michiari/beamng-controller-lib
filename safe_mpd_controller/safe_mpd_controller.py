@@ -25,6 +25,9 @@ STATUS_POLLING_INTERVAL_S = 1.0
 STOP_TIMEOUT_S = 5.0
 STOP_SPEED_MPS = 0.1
 STOP_HOLD_S = 1.0
+DEFAULT_VEHICLE_MODEL = "etk800"
+DEFAULT_LICENSE_PLATE = "AI"
+DEFAULT_TRAILER_MODEL = "boxutility"
 TOW_HITCH_TAG = "tow_hitch"
 ETK800_HITCH_NODE = "tw"
 CARGO_TRAILER_COUPLER_NODE = "t8"
@@ -41,8 +44,15 @@ def _node_position(vehicle, node_name):
     return node_info[0]["pos"]
 
 
-def spawn_vehicle_and_trailer(scenario, vehicle_spawn_pos, vehicle_rot_quat, vehicle, trailer):
-    """Align the cargo trailer receiver with the ETK800 hitch and attach it."""
+def spawn_vehicle_and_trailer(beamng_user, scenario, vehicle_id, vehicle_spawn_pos, vehicle_rot_quat):
+    """Create vehicle and trailer, then align the cargo trailer receiver with the hitch and attach it."""
+
+    pc_rel_path = Path("vehicles") / DEFAULT_VEHICLE_MODEL / "hitch.pc"
+    pc_path = Path(beamng_user) / "current" / pc_rel_path
+    shutil.copy(Path("assets") / "hitch.pc", pc_path)
+    vehicle = Vehicle(vehicle_id, model=DEFAULT_VEHICLE_MODEL, license=DEFAULT_LICENSE_PLATE, part_config=str(pc_rel_path))
+    trailer = Vehicle(vehicle_id + "_trailer", model=DEFAULT_TRAILER_MODEL, license=DEFAULT_LICENSE_PLATE)
+
     scenario.add_vehicle(vehicle, pos=vehicle_spawn_pos, rot_quat=vehicle_rot_quat, cling=True)
     scenario.add_vehicle(trailer, pos=vehicle_spawn_pos, rot_quat=vehicle_rot_quat, cling=True)
 
@@ -60,6 +70,8 @@ def spawn_vehicle_and_trailer(scenario, vehicle_spawn_pos, vehicle_rot_quat, veh
     # Activating the towing vehicle's coupler makes it latch onto the trailer's
     # matching `tow_hitch` tag as soon as simulation resumes.
     vehicle.couplers.attach(TOW_HITCH_TAG)
+
+    return vehicle, trailer
 
 
 def stop_vehicle(vehicle):
@@ -223,6 +235,7 @@ def run_vehicle_controller(
         if controller_args.wait_for_beamng:
             input("Press Enter to connect to BeamNG.tech...")
         beamng_client.open(launch=False)
+
         # Wait before connecting the scenario. ``get_current()`` already
         # connects every vehicle, so connecting a second object returned by
         # ``vehicles.get_current()`` leaks one socket per vehicle.
@@ -257,15 +270,9 @@ def run_vehicle_controller(
                     trailer.disconnect()
                     running_scenario.remove_vehicle(trailer)
 
-                pc_rel_path = Path("vehicles") / "etk800" / "hitch.pc"
-                pc_path = Path(beamng_user) / "current" / pc_rel_path
-                shutil.copy("hitch.pc", pc_path)
-                vehicle = Vehicle(vehicle_id, model="etk800", license="AI", part_config=str(pc_rel_path))
-                trailer = Vehicle(vehicle_id + "_trailer", model="boxutility", license="AI")
-                spawn_vehicle_and_trailer(running_scenario, pos_triple, rot_quat, vehicle, trailer)
-
+                vehicle, trailer = spawn_vehicle_and_trailer(beamng_user, running_scenario, vehicle_id, pos_triple, rot_quat)
             else:
-                vehicle = Vehicle(vehicle_id, model="etk800", license="AI")
+                vehicle = Vehicle(vehicle_id, model=DEFAULT_VEHICLE_MODEL, license=DEFAULT_LICENSE_PLATE)
                 running_scenario.add_vehicle(vehicle, pos=pos_triple, rot_quat=rot_quat, cling=True)
         else:
             vehicle.teleport(pos=pos_triple, rot_quat=rot_quat, reset=True)
