@@ -48,9 +48,9 @@ class RandomController(StepController):
     def _compute_control_values(self, electrics):
         print(
             f"[CLIENT] sample {self.index + 1:02d}: "
-            f"throttle={electrics["throttle_input"]!r}"
-            f"steering={electrics["steering_input"]!r}"
-            f"wheelspeed={electrics["wheelspeed"]!r}"
+            f"throttle={electrics['throttle_input']!r} "
+            f"steering={electrics['steering_input']!r} "
+            f"wheelspeed={electrics['wheelspeed']!r}"
         )
 
         throttle = self.rng.uniform(self.min_throttle, self.max_throttle)

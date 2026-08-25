@@ -11,11 +11,11 @@ import matplotlib
 matplotlib.use('TKAgg')
 
 from beamngpy import BeamNGpy, Scenario, Vehicle, angle_to_quat, set_up_simple_logging
+from safe_mpd_controller.safe_mpd import SafeMPDController
 
-from osm_roads.osm_buildings import load_building_polygons
-from beamng_interface.controller.safe_mpd import SafeMPDController
-from beamng_interface.controller.vehicle_controller import wait_for_active_vehicles
-from beamng_interface.xodr_import import OpenDriveExtendedImporter
+from beamng_controllers.vehicle_controller import wait_for_active_vehicles
+from .utils import load_building_polygons
+from .xodr_import import OpenDriveExtendedImporter
 
 
 DEFAULT_HOST = "localhost"
@@ -220,7 +220,7 @@ def run_vehicle_controller(
     debug_trajectory_line = None
 
     try:
-        if args.wait_for_beamng:
+        if controller_args.wait_for_beamng:
             input("Press Enter to connect to BeamNG.tech...")
         beamng_client.open(launch=False)
         # Wait before connecting the scenario. ``get_current()`` already
@@ -243,7 +243,7 @@ def run_vehicle_controller(
             raise RuntimeError(f"Vehicle {vehicle_id!r} disappeared while connecting.")
 
         x, y, theta = controller.get_true_spawn_pos()
-        pos_triple = (x, y, args.spawn_pos[2])
+        pos_triple = (x, y, controller_args.spawn_pos[2])
         rot_quat = angle_to_quat((0, 0, -math.degrees(theta) - 90.0))
         # Keep newly spawned vehicles stationary while their coupling nodes are
         # aligned. Otherwise spawning both at the same origin causes a collision.
@@ -299,7 +299,7 @@ def run_vehicle_controller(
         beamng_client.disconnect()
 
 
-if __name__ == "__main__":
+def main():
     parser = build_parser()
     args = parser.parse_args()
 
@@ -317,3 +317,7 @@ if __name__ == "__main__":
         connect_timeout_s=args.connect_timeout_s,
         controller_args=args,
     )
+
+
+if __name__ == "__main__":
+    main()

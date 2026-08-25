@@ -6,8 +6,8 @@ import time
 
 from beamngpy import BeamNGpy, set_up_simple_logging
 
-from beamng_interface.controller.controller_wrapper import RandomController
-from beamng_interface.controller.beamng_ai_controller import BeamNGAIController
+from beamng_controllers.controller_wrapper import RandomController
+from beamng_controllers.beamng_ai_controller import BeamNGAIController
 
 
 DEFAULT_HOST = "localhost"
@@ -193,7 +193,7 @@ def run_vehicle_controller(
         beamng_client.disconnect()
 
 
-if __name__ == "__main__":
+def main():
     parser = build_parser()
     args = parser.parse_args()
     validate_args(parser, args)
@@ -212,3 +212,7 @@ if __name__ == "__main__":
         connect_timeout_s=args.connect_timeout_s,
         controller_args=args,
     )
+
+
+if __name__ == "__main__":
+    main()

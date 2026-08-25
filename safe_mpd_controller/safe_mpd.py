@@ -30,7 +30,7 @@ from mbd.envs import get_env
 from mbd.envs.env import Env
 from mbd.planners.mbd_planner import MBDConfig, run_diffusion, clear_jit_cache
 
-from beamng_interface.controller.controller_wrapper import ControllerWrapper
+from beamng_controllers.controller_wrapper import ControllerWrapper
 
 
 _MIN_GEOMETRY_SIZE_M = 1e-9
