@@ -13,5 +13,5 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["beamng_blackboard "]
+packages = ["beamng_blackboard"]
 package-dir = { beamng_blackboard  = "." }

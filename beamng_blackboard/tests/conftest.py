@@ -13,7 +13,7 @@ from beamng import BeamNGWrapper, BeamNGConfigs
 @pytest.fixture
 def system_is():
     import platform
-    return platform.uname().release.lower()
+    return platform.system() + " " + platform.uname().release.lower()
 
 @pytest.fixture
 def test_conf():
@@ -31,23 +31,31 @@ def _retrieve_windows_temp_folder():
 @pytest.fixture
 def beamng_home_path(system_is, test_conf):
     if "wsl" in system_is:
-        beamng_home = test_conf['beamng']['home'] if 'home' in test_conf['beamng'] else os.environ.get("BEAMNG_TECH_HOME")
+        beamng_home = test_conf['beamng'].get('home') or os.environ.get("BEAMNG_TECH_HOME")
         assert beamng_home is not None, "Missing beamng_home"
         return PureWindowsPath(beamng_home)
+    elif "Linux" in system_is:
+        beamng_home = test_conf['beamng'].get('home') or os.environ.get("BEAMNG_TECH_HOME")
+        assert beamng_home is not None, "Missing beamng_home"
+        return PurePosixPath(beamng_home)
 
-    raise RuntimeError("Cannot handle non WSL systems at the moment")
+    raise RuntimeError("Cannot handle current platform at the moment")
 
 
 @pytest.fixture
 def beamng_temp_user_base(system_is, test_conf):
     if "wsl" in system_is:
         # Note to make this work we need to get the temp folder on Windows!
-        beamng_temp_folder = test_conf['beamng']['temp_user'] if 'temp_user' in test_conf['beamng'] else _retrieve_windows_temp_folder()
+        beamng_temp_folder = test_conf['beamng'].get('temp_user') or _retrieve_windows_temp_folder()
         assert beamng_temp_folder is not None, "Missing beamng_temp_folder"
         # return PureWindowsPath("C:\\BeamNG\\BeamNG.tech.v0.38.3.0")
         return PureWindowsPath(beamng_temp_folder)
+    elif "Linux" in system_is:
+        beamng_temp_folder = test_conf['beamng'].get('temp_user') or os.environ.get("BEAMNG_TEMP_USER")
+        assert beamng_temp_folder is not None, "Missing beamng_temp_folder"
+        return PurePosixPath(beamng_temp_folder)
 
-    raise RuntimeError("Cannot handle non WSL systems at the moment")
+    raise RuntimeError("Cannot handle current platform at the moment")
 
 
 @pytest.fixture
@@ -61,12 +69,17 @@ def beamng_temporary_user_folder(system_is, beamng_temp_user_base: Path):
 def beamng_port(system_is, test_conf):
     if "wsl" in system_is:
         # Note to make this work we need to get the temp folder on Windows!
-        beamng_port = test_conf['beamng']['port'] if 'port' in test_conf['beamng'] else 25252
+        beamng_port = test_conf['beamng'].get('port') or 25252
         assert beamng_port is not None, "Missing beamng_port"
         # return PureWindowsPath("C:\\BeamNG\\BeamNG.tech.v0.38.3.0")
         return int(beamng_port)
 
-    raise RuntimeError("Cannot handle non WSL systems at the moment")
+    elif "Linux" in system_is:
+        beamng_port = test_conf['beamng'].get('port') or 25252
+        assert beamng_port is not None, "Missing beamng_port"
+        return int(beamng_port)
+
+    raise RuntimeError("Cannot handle current platform at the moment")
 
 
 @pytest.fixture
