@@ -1,0 +1,6 @@
+# No need to escape \ into \\
+beamng:
+  home: None
+  user: None
+  temp_user: None
+  port: 25252
