@@ -1,0 +1,6 @@
+# No need to escape \ into \\
+beamng:
+  home: C:\BeamNG\BeamNG.tech.v0.38.3.0
+  user: C:\BeamNG\BeamNG.tech.v0.38.3.0_user
+  temp_user: C:\BeamNG\TempUserFolders
+  port: 25252
