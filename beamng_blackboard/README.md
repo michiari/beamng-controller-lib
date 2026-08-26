@@ -1,4 +1,4 @@
-# beamng-blackboard
+# Beamng Blackboard
 
 A lightweight blackboard-inspired component that uses BeamNG.tech as shared memory to synchronize remote driving agents with a central component managing the simulation of a scenario.
 
@@ -16,19 +16,20 @@ python -m pip install -e ./requirements.txt
 We use `pytest` for implementing unit tests.
 
 ## Description
+The module implements a basic FSM and assumes that the both components (the main controller and the remote driver) invoke the "right" method as follows:
 
 ```
-                     +----------+
+(main controller)    +----------+
 new run ------------>| PREPARING |
                      +-----+----+
                            |
-                           | main controller finished setup
+                           | finished setup (main controller)
                            v
                        +-------+
                        | READY |
                        +---+---+
                            |
-                           | driver observes READY
+                           | start driving (driver)
                            v
                       +---------+
                       | RUNNING |
@@ -38,22 +39,65 @@ new run ------------>| PREPARING |
               |                          |
               v                          v
           +-------+                  +--------+
-          | ENDED |                  | FAILED |
+          | ENDED |                  | FAILED | finished test (main controller)
           +-------+                  +--------+
 ```
 
-Each state is tagged with an unique run id, such that every update except creation includes the expected run_id.
-Consequently, a delayed command from an old scenario cannot modify a new scenario.
+Every run is tagged with an unique "run id" to avoid interferences from past/stale runs, e.g., a delayed command from
+an old scenario execution or a client with the wrong run_id cannot modify the currently running scenario.
 
-```json
-{
-    "protocol": 1,
-    "run_id": "997e9e8d...",
-    "phase": "running",
-    "revision": 4,
-    "reason": None,
-}
+## A Possible Usage Example
+
+Main controller:
+
+```python
+# Instantiate the BlackBoard object (only once)
+blackboard = BeamNGBlackboard(running_beamng, poll_interval=0.01)
+
+...
+
+# For a new scenario
+# Allocate a fresh run_id
+
+run_id = blackboard.begin_run()
+
+# Setup the scenario
+
+# Mark the scenario as READY
+blackboard.mark_ready(run_id)
+
+# Start the client process and communicate the run_id with other inputs, such as beamng host/port, scenario name, vehicle id, etc. 
+
+# Monitor the scenario and mark it as pass (finish) or fail (fail)
+
+blackboard.finish(run_id) # or blackboard.fail(run_id)
+
+# Optionally kill the driver process
 ```
+
+Driver:
+
+```python
+
+    # Instantiate the BlackBoard object (only once)
+    blackboard = BeamNGBlackboard(running_beamng, poll_interval=0.01)
+
+    # TODO Wait until getting the READY state (untested)
+    blackboard.wait_for_ready(run_id)
+
+    # Initialize and get ready for driving
+    ...
+
+    # Mark the scenario as RUNNING
+    blackboard.mark_running(run_id)
+
+    while blackboard.is_running(run_id):
+        # Drive a little and check that the scenario is still running
+        ...
+
+    # Tear down the client if needed
+```
+
 ## Disclaimer
 The code and descriptions have been generated using ChatGPT with the following prompt and then tested, fixed and adapted.
 
