@@ -6,8 +6,14 @@ third-party requirements can be placed in separate virtual environments.
 
 | Directory | Distribution | Purpose |
 | --- | --- | --- |
+| `beamng_blackboard` | `beamng-blackboard` | API for synchronizing the scenario-creating process with controllers. |
 | `beamng_controllers` | `beamng-controllers` | Shared controller API and lightweight example controllers. |
 | `safe_mpd_controller` | `beamng-safe-mpd-controller` | Controller using [Safe-MPD](https://github.com/cps-atlas/safe-mpd). |
+
+If you don't know where to start, `beamng-controllers` contains two simple
+controllers: one that steers the car in random directions, and one that drives
+it through a list of waypoints using BeamNG AI.
+Please refer to the submodule [README.md](beamng_controllers/README.md).
 
 For a controller environment, first install the shared project, then install
 the desired controller project:

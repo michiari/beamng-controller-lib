@@ -11,9 +11,10 @@ import matplotlib
 matplotlib.use('TKAgg')
 
 from beamngpy import BeamNGpy, Scenario, Vehicle, angle_to_quat, set_up_simple_logging
-from safe_mpd_controller.safe_mpd import SafeMPDController
 
+from beamng_blackboard import BeamNGBlackboard
 from beamng_controllers.vehicle_controller import wait_for_active_vehicles
+from .safe_mpd import SafeMPDController
 from .utils import load_building_polygons
 from .xodr_import import OpenDriveExtendedImporter
 
@@ -135,6 +136,7 @@ def build_parser():
         type=Path,
         help="BeamNG.tech user path. Defaults to BEAMNG_TECH_USER.",
     )
+    parser.add_argument("--run-id", default=None, help="Run ID to use for blackboard")
     parser.add_argument("--wait-for-beamng", action="store_true", help="Wait for user input before connecting to BeamNG.tech.")
     parser.add_argument("--vehicle-id", default=DEFAULT_VEHICLE_ID)
     parser.add_argument(
@@ -214,6 +216,7 @@ def run_vehicle_controller(
     beamng_port,
     beamng_home,
     beamng_user,
+    run_id,
     vehicle_id,
     focus_vehicle,
     respawn_vehicle,
@@ -235,6 +238,12 @@ def run_vehicle_controller(
         if controller_args.wait_for_beamng:
             input("Press Enter to connect to BeamNG.tech...")
         beamng_client.open(launch=False)
+
+        blackboard = BeamNGBlackboard(beamng_client)
+        if run_id is None:
+            snapshot = blackboard.wait_for_ready()
+            run_id = snapshot.run_id
+        blackboard.mark_running(run_id)
 
         # Wait before connecting the scenario. ``get_current()`` already
         # connects every vehicle, so connecting a second object returned by
@@ -295,6 +304,10 @@ def run_vehicle_controller(
                 time.sleep(STATUS_POLLING_INTERVAL_S)
                 break
 
+            if not blackboard.is_running(run_id):
+                print(f"Run {run_id} is not running any more. Stopping controller...")
+                break
+
     finally:
         if debug_trajectory_line is not None:
             beamng_client.debug.remove_polyline(debug_trajectory_line)
@@ -317,6 +330,7 @@ def main():
         beamng_port=args.port,
         beamng_home=args.home,
         beamng_user=args.user,
+        run_id=args.run_id,
         vehicle_id=args.vehicle_id,
         respawn_vehicle=args.respawn_vehicle,
         focus_vehicle=args.focus_vehicle,
