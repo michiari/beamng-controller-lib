@@ -19,3 +19,16 @@ git clone https://github.com/cps-atlas/safe-mpd.git ../safe-mpd
 python -m pip install -e ../safe-mpd
 python -m pip install -e .
 ```
+
+The controller expects an XML [ASAM OpenDRIVE](https://www.asam.net/standards/detail/opendrive/)
+file describing the roads in the scenario.
+
+Example command:
+```bash
+python -m safe_mpd_controller.safe_mpd_controller --vehicle-id ego_vehicle --xodr-file path/to/xodr/file.xodr --lane-width 3.6 --spawn-pos 22.5 9.0 42 --goal-pos -4.4 35.9 0.0  --samples 4000 --horizon 50 --diffusion-steps 100 --max-speed 20 --trailer --dynamics tt2d --debug
+```
+
+For more usage options, consult
+```bash
+python -m safe_mpd_controller.safe_mpd_controller --help
+```
