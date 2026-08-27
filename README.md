@@ -6,7 +6,7 @@ third-party requirements can be placed in separate virtual environments.
 
 | Directory | Distribution | Purpose |
 | --- | --- | --- |
-| `beamng_blackboard` | `beamng_blackboard` | API for synchronizing the scenario-creating process with controllers. |
+| `beamng_blackboard` | `beamng-blackboard` | API for synchronizing the scenario-creating process with controllers. |
 | `beamng_controllers` | `beamng-controllers` | Shared controller API and lightweight example controllers. |
 | `safe_mpd_controller` | `beamng-safe-mpd-controller` | Controller using [Safe-MPD](https://github.com/cps-atlas/safe-mpd). |
 
