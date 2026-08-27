@@ -261,6 +261,7 @@ return jsonEncode({{
         """
         start = time.monotonic()
 
+        print(f"[BLACKBOARD] Waiting for a ready BeamNG scenario (after_run_id={after_run_id!r})...")
         while True:
             # Poll the state
             state = self.read()
@@ -273,6 +274,7 @@ return jsonEncode({{
                     or state.run_id != after_run_id
                 )
             ):
+                print(f"[BLACKBOARD] Scenario {state.run_id} is READY.")
                 return state
 
             if timeout is not None:
@@ -394,6 +396,7 @@ return jsonEncode({{
         )
 
         if result["ok"]:
+            print(f"[BLACKBOARD] Scenario {run_id} transitioned to {target.value}.")
             return
 
         error = result.get("error")

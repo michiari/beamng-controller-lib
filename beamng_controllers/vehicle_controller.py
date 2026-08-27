@@ -6,6 +6,8 @@ import time
 
 from beamngpy import BeamNGpy, set_up_simple_logging
 
+from beamng_blackboard import BeamNGBlackboard
+
 from beamng_controllers.controller_wrapper import RandomController
 from beamng_controllers.beamng_ai_controller import BeamNGAIController
 
@@ -36,6 +38,7 @@ def build_parser():
         default=os.environ.get("BEAMNG_TECH_USER"),
         help="BeamNG.tech user path. Defaults to BEAMNG_TECH_USER.",
     )
+    parser.add_argument("--run-id", default=None, help="Run ID to use for the blackboard")
     parser.add_argument("--vehicle-id", default=DEFAULT_VEHICLE_ID)
     parser.add_argument(
         "--iterations",
@@ -117,7 +120,7 @@ def stop_vehicle(vehicle):
         vehicle.control(throttle=0.0, steering=0.0, brake=1.0)
     except Exception as exc:
         vehicle_id = getattr(vehicle, "vid", "<unknown>")
-        print(f"[B] Could not stop {vehicle_id!r}: {exc}")
+        print(f"[CONTROLLER] Could not stop {vehicle_id!r}: {exc}")
 
 
 def build_controller(vehicle, args):
@@ -150,6 +153,7 @@ def run_vehicle_controller(
     beamng_port,
     beamng_home,
     beamng_user,
+    run_id,
     vehicle_id,
     iterations,
     control_interval_s,
@@ -164,8 +168,15 @@ def run_vehicle_controller(
 
     try:
         beamng_client.open(launch=False)
+
+        blackboard = BeamNGBlackboard(beamng_client)
+        if run_id is None:
+            snapshot = blackboard.wait_for_ready()
+            run_id = snapshot.run_id
+        blackboard.mark_running(run_id)
+
         running_scenario = beamng_client.scenario.get_current()
-        print(f"Controller connected to scenario: {running_scenario.name}")
+        print(f"[CONTROLLER] Connected to scenario: {running_scenario.name}")
 
         active_vehicles = wait_for_active_vehicles(
             beamng_client,
@@ -179,13 +190,18 @@ def run_vehicle_controller(
 
         controller = build_controller(vehicle, controller_args)
 
+        beamng_client.resume()
         for index in range(iterations):
             controller.next_control()
 
-            print(f"[CLIENT] Command {index + 1:02d}/{iterations}.")
+            print(f"[CONTROLLER] Command {index + 1:02d}/{iterations}.")
 
             if control_interval_s:
                 time.sleep(control_interval_s)
+
+            if not blackboard.is_running(run_id):
+                print(f"[CONTROLLER] Run {run_id} is not running any more. Stopping controller...")
+                break
 
     finally:
         if vehicle is not None:
@@ -205,6 +221,7 @@ def main():
         beamng_port=args.port,
         beamng_home=args.home,
         beamng_user=args.user,
+        run_id=args.run_id,
         vehicle_id=args.vehicle_id,
         iterations=args.iterations,
         control_interval_s=args.control_interval_s,
