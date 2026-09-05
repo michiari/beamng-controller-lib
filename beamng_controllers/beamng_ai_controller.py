@@ -115,6 +115,8 @@ class BeamNGAIController(ControllerWrapper):
     def next_control(self):
         if not self.started:
             self.started = True
+            self.vehicle.ai.set_mode("manual")
+            # TODO We probably need to set a speed limit as well
             self.vehicle.ai.drive_using_waypoints(
                 self.waypoints,
                 **self.drive_options,

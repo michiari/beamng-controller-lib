@@ -12,9 +12,10 @@ from beamng_controllers.controller_wrapper import RandomController
 from beamng_controllers.beamng_ai_controller import BeamNGAIController
 
 
-DEFAULT_HOST = "localhost"
+DEFAULT_HOST = "172.27.32.1" # "localhost"
 DEFAULT_PORT = 25252
-DEFAULT_VEHICLE_ID = "my_vehicle"
+
+DEFAULT_VEHICLE_ID = "ego_vehicle"
 DEFAULT_CONTROLLER_TYPE = "random"
 CONTROLLER_TYPES = (DEFAULT_CONTROLLER_TYPE, "beamng-ai")
 
