@@ -16,6 +16,7 @@ python -m venv .venv
 python -m pip install -e ../beamng_controllers
 python -m pip install -e ../beamng_blackboard
 git clone https://github.com/michiari/VisionPilot ../VisionPilot
+python -m pip install -r ../VisionPilot/requirements.txt
 python -m pip install -e ../VisionPilot
 python -m pip install -e .
 ```
