@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beamng-visionpilot-controller"
+version = "0.1.0"
+description = "A BeamNG.tech vehicle controller using VisionPilot"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beamng-controllers>=0.1.0",
+    "beamngpy>=1.31",
+]
+
+[project.scripts]
+beamng-visionpilot-controller = "visionpilot_controller.visionpilot_controller:main"
+
+[tool.setuptools]
+packages = ["visionpilot_controller"]
+package-dir = { visionpilot_controller = "." }
