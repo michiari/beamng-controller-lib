@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import time
 import yaml
@@ -10,6 +11,8 @@ from src.perception.lane_detection.main import process_frame_cv as cv_lane_proce
 from beamngpy.sensors import Camera
 
 from beamng_controllers.controller_wrapper import ControllerWrapper
+
+logger = logging.getLogger("visionpilot_controller")
 
 DEFAULT_BEAMNG_STEPS_PER_SECOND = 60
 DEFAULT_CV_HINT_NUM_LANES = 3
@@ -52,7 +55,7 @@ class VisionPilotController(ControllerWrapper):
             Kd=self.control_cfg['speed_pid']['Kd']
         )
         self.speed_control_mode = self.control_cfg['speed_control_mode']
-        print(f"[Main] Speed control mode: {self.speed_control_mode}")
+        logger.info("Speed control mode: %s", self.speed_control_mode)
 
         self._setup_sensors(beamng_client)
 
@@ -86,7 +89,7 @@ class VisionPilotController(ControllerWrapper):
             is_render_depth=sensor_cfg.get('is_render_depth', False),
             is_visualised=sensor_cfg.get('is_visualised', False),
         )
-        print(f"Camera '{sensor_key}' initialized")
+        logger.info("Camera %r initialized", sensor_key)
 
     def next_control(self, step_size=10):
         speed_mps, speed_kph, car_pos, direction = self._get_vehicle_state()
@@ -114,7 +117,10 @@ class VisionPilotController(ControllerWrapper):
                 num_lanes=self.cv_hint_num_lanes
             )
 
-            print(f"Local processing latency: {(time.time()-start_proc)*1000:.1f}ms")
+            logger.debug(
+                "Local processing latency: %.1fms",
+                (time.time() - start_proc) * 1000,
+            )
             
             deviation = lane_metrics.get('deviation', 0.0)
             # ensure deviation is not None
@@ -139,12 +145,24 @@ class VisionPilotController(ControllerWrapper):
             # Log lane tracking info
             current_lane = lane_metrics.get('current_lane')
             if current_lane:
-                print(f"[MAIN] Tracking: lane={current_lane.get('lane_class', '?')} (ID:{current_lane.get('lane_id', '?')}), pos_in_lane={current_lane.get('position_in_lane', 0):.2f}, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m")
+                logger.debug(
+                    "Tracking: lane=%s (ID:%s), pos_in_lane=%.2f, "
+                    "deviation=%.3fm, eff_dev=%.3fm",
+                    current_lane.get('lane_class', '?'),
+                    current_lane.get('lane_id', '?'),
+                    current_lane.get('position_in_lane', 0),
+                    deviation,
+                    effective_deviation,
+                )
             else:
-                print(f"[MAIN] No lane tracked, deviation={deviation:.3f}m, eff_dev={effective_deviation:.3f}m")
+                logger.debug(
+                    "No lane tracked, deviation=%.3fm, eff_dev=%.3fm",
+                    deviation,
+                    effective_deviation,
+                )
         
         except Exception as agg_e:
-            print(f"[Main] Local perception error: {agg_e}")
+            logger.exception("Local perception error: %s", agg_e)
             return
 
         SIM_DT = step_size / float(self.beamng_steps_per_second)
@@ -173,7 +191,7 @@ class VisionPilotController(ControllerWrapper):
         try:
             self.vehicle.control(throttle=float(throttle), brake=float(brake), steering=float(steering))
         except Exception as e:
-            print(f"[Main] Error sending control to vehicle: {e}")
+            logger.exception("Error sending control to vehicle: %s", e)
             
         self.previous_steering = steering
 

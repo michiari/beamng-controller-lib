@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import logging
 import os
 import time
 
@@ -9,6 +10,8 @@ import cv2
 
 from beamng_blackboard import BeamNGBlackboard
 from visionpilot_controller.visionpilot import DEFAULT_CV_HINT_NUM_LANES, VisionPilotController
+
+logger = logging.getLogger("visionpilot_controller")
 
 
 DEFAULT_HOST = "localhost"
@@ -128,7 +131,7 @@ def stop_vehicle(vehicle):
         vehicle.control(throttle=0.0, steering=0.0, brake=1.0)
     except Exception as exc:
         vehicle_id = getattr(vehicle, "vid", "<unknown>")
-        print(f"[CONTROLLER] Could not stop {vehicle_id!r}: {exc}")
+        logger.warning("Could not stop %r: %s", vehicle_id, exc, exc_info=True)
 
 
 def build_controller(vehicle, args):
@@ -163,7 +166,7 @@ def run_vehicle_controller(
             run_id = snapshot.run_id
 
         running_scenario = beamng_client.scenario.get_current()
-        print(f"[CONTROLLER] Connected to scenario: {running_scenario.name}")
+        logger.info("Connected to scenario: %s", running_scenario.name)
 
         active_vehicles = wait_for_active_vehicles(
             beamng_client,
@@ -193,10 +196,13 @@ def run_vehicle_controller(
                     
             controller.next_control(step_size)
 
-            print(f"[CONTROLLER] Command {i + 1:02d}/{iterations}.")
+            logger.debug("Command %02d/%d.", i + 1, iterations)
 
             if not blackboard.is_running(run_id):
-                print(f"[CONTROLLER] Run {run_id} is not running any more. Stopping controller...")
+                logger.info(
+                    "Run %s is not running any more. Stopping controller...",
+                    run_id,
+                )
                 break
 
             i += 1
@@ -214,6 +220,7 @@ def main():
     validate_args(parser, args)
 
     set_up_simple_logging()
+    logging.getLogger("visionpilot_controller").setLevel(logging.INFO)
 
     run_vehicle_controller(
         beamng_host=args.host,
