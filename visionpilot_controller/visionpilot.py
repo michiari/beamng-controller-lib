@@ -95,6 +95,8 @@ class VisionPilotController(ControllerWrapper):
         speed_mps, speed_kph, car_pos, direction = self._get_vehicle_state()
 
         images = self.camera_front.poll()
+        if images is None or 'colour' not in images:
+            raise RuntimeError("Failed to retrieve image from front camera sensor. Have you started the simulation?")
         img = np.array(images['colour'], dtype=np.uint8)
 
         # Lane Detection

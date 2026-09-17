@@ -4,11 +4,16 @@ import argparse
 import logging
 import os
 import time
+from pathlib import Path
 
 from beamngpy import BeamNGpy, set_up_simple_logging
 import cv2
 
 from beamng_blackboard import BeamNGBlackboard
+from beamng_controllers.video_recorder import (
+    DEFAULT_VIDEO_RESOLUTION,
+    BeamNGVideoRecorder,
+)
 from visionpilot_controller.visionpilot import DEFAULT_CV_HINT_NUM_LANES, VisionPilotController
 
 logger = logging.getLogger("visionpilot_controller")
@@ -18,6 +23,7 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 25252
 DEFAULT_VEHICLE_ID = "my_vehicle"
 DEFAULT_STEP_SIZE = 10
+INITIAL_STEP_SIZE = 10
 
 
 def build_parser():
@@ -87,12 +93,40 @@ def build_parser():
         help="Enable debug display for perspective transformation.",
     )
 
+    parser.add_argument(
+        "--record-video",
+        action="store_true",
+        help="Record the vehicle camera to a video.",
+    )
+    parser.add_argument(
+        "--video-path",
+        default="visionpilot.mp4",
+        type=Path,
+        help="Output path for the recorded video (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--video-resolution",
+        type=int,
+        nargs=2,
+        metavar=("WIDTH", "HEIGHT"),
+        default=DEFAULT_VIDEO_RESOLUTION,
+        help="Video resolution in pixels (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--ffmpeg-path",
+        default=None,
+        type=Path,
+        help="Path to the ffmpeg executable. By default it is auto-detected.",
+    )
+
     return parser
 
 
 def validate_args(parser, args):
     if args.connect_timeout_s < 0.0:
         parser.error("--connect-timeout-s must be non-negative")
+    if any(dimension <= 0 for dimension in args.video_resolution):
+        parser.error("--video-resolution WIDTH HEIGHT must be positive")
 
 
 def connect_vehicle(client, active_vehicles, vehicle_id):
@@ -150,7 +184,7 @@ def run_vehicle_controller(
     step_size,
     focus_vehicle,
     connect_timeout_s,
-    visionpilot_args
+    more_args
 ):
     set_up_simple_logging()
 
@@ -180,19 +214,35 @@ def run_vehicle_controller(
 
         controller = VisionPilotController(
             beamng_client, vehicle,
-            cv_hint_num_lanes=visionpilot_args.cv_hint_num_lanes,
-            debug_show_cv_lane_detection_output=visionpilot_args.debug_show_cv_lane_detection_output,
-            debug_cv_lane_detection=visionpilot_args.debug_cv_lane_detection,
-            debug_perspective=visionpilot_args.debug_perspective
+            cv_hint_num_lanes=more_args.cv_hint_num_lanes,
+            debug_show_cv_lane_detection_output=more_args.debug_show_cv_lane_detection_output,
+            debug_cv_lane_detection=more_args.debug_cv_lane_detection,
+            debug_perspective=more_args.debug_perspective
         )
-        blackboard.mark_running(run_id)
 
+        record_video = more_args.record_video
+        if record_video:
+            video_recorder = BeamNGVideoRecorder(
+                beamng_client,
+                vehicle,
+                beamng_steps_per_second=controller.beamng_steps_per_second,
+                video_fps=float(controller.beamng_steps_per_second) / step_size,
+                video_path=more_args.video_path,
+                video_resolution=more_args.video_resolution,
+                ffmpeg_path=more_args.ffmpeg_path,
+            )
+
+        blackboard.mark_running(run_id)
         beamng_client.settings.set_deterministic(controller.beamng_steps_per_second)
         beamng_client.pause()
+        # If we step by less than 10, no camera image will be ready
+        beamng_client.step(INITIAL_STEP_SIZE)
 
         i = 0
         while iterations < 0 or i < iterations:
             beamng_client.step(step_size)
+            if record_video:
+                video_recorder.record_frame()
                     
             controller.next_control(step_size)
 
@@ -208,6 +258,9 @@ def run_vehicle_controller(
             i += 1
 
     finally:
+        if more_args.record_video:
+            video_recorder.finalize()
+
         if vehicle is not None:
             stop_vehicle(vehicle)
         cv2.destroyAllWindows()
@@ -233,7 +286,7 @@ def main():
         step_size=args.step_size,
         focus_vehicle=args.focus_vehicle,
         connect_timeout_s=args.connect_timeout_s,
-        visionpilot_args=args,
+        more_args=args,
     )
 
 
