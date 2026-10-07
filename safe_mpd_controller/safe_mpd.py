@@ -84,6 +84,8 @@ class SafeMPDController(ControllerWrapper):
             f"{len(obstacles.rectangles)} rectangles"
         )
 
+        # obstacle_builder.plot_debug([spawn_pos, goal_pos], show=True)
+
         self.waypoints = obstacle_builder.waypoints_between(spawn_pos, goal_pos, spacing_m=waypoint_spacing_m)
         print(f"Generated waypoints: {len(self.waypoints)} points, {self.waypoints[0]} -> {self.waypoints[-1]}")
         self.first_waypoint, self.last_waypoint = self.waypoints[0], self.waypoints[-1]
@@ -266,7 +268,7 @@ class SafeMPDController(ControllerWrapper):
             "--spawn-pos",
             type=float,
             nargs=3,
-            required=True,
+            required=False,
             metavar=("X", "Y", "Z"),
             help="Initial vehicle position",
         )

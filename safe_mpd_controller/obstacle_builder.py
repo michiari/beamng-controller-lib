@@ -17,6 +17,7 @@ _IMPORTED_CENTERLINE_CLEANUP_TOLERANCE_M = 1e-9
 _IMPORTED_WIDTH_TOLERANCE_M = 1e-9
 _NUMERICAL_HOLE_AREA_M2 = 1e-8
 _DEFAULT_BUILDING_PROXIMITY_M = 1.0
+_NETWORK_NODE_SNAP_TOLERANCE_M = 1e-6
 
 
 SafeMPDRectangle = tuple[float, float, float, float, float]
@@ -31,11 +32,23 @@ class RoadBoundaryObstacles:
 
 
 @dataclass(frozen=True)
+class ImportedRoadLink:
+    """One predecessor or successor relation from an OpenDRIVE road."""
+
+    element_type: str
+    element_id: str
+    contact_point: str | None
+
+
+@dataclass(frozen=True)
 class ImportedRoadGeometry:
     """Normalized road record returned by OpenDriveExtendedImporter."""
 
     rid: str
     nodes: tuple[tuple[float, float, float, float], ...]
+    source_road_id: str | None = None
+    predecessor: ImportedRoadLink | None = None
+    successor: ImportedRoadLink | None = None
 
 
 class RoadBoundaryObstacleBuilder:
@@ -105,6 +118,7 @@ class RoadBoundaryObstacleBuilder:
             )
             self.road_protection_polygons = None
             self.xodr_roads = None
+            self.road_topology_connections = ()
             if road_width_m is None:
                 raise ValueError("road_width_m is required with road_centerlines")
             self.road_width_m = self._require_positive(
@@ -123,6 +137,7 @@ class RoadBoundaryObstacleBuilder:
                 LineString((node[0], node[1]) for node in road.nodes)
                 for road in self.xodr_roads
             )
+            self.road_topology_connections = self._road_topology_connections()
 
         self.corridor = self._build_corridor()
         self.nearby_building_polygons = tuple(
@@ -246,6 +261,17 @@ class RoadBoundaryObstacleBuilder:
                 ImportedRoadGeometry(
                     rid=str(road.get("rid", f"road_{road_index}")),
                     nodes=tuple(normalized_nodes),
+                    source_road_id=(
+                        None
+                        if road.get("source_road_id") is None
+                        else str(road["source_road_id"])
+                    ),
+                    predecessor=self._normalize_imported_road_link(
+                        road.get("predecessor"), road_index, "predecessor"
+                    ),
+                    successor=self._normalize_imported_road_link(
+                        road.get("successor"), road_index, "successor"
+                    ),
                 )
             )
 
@@ -255,6 +281,72 @@ class RoadBoundaryObstacleBuilder:
                 "a positive width"
             )
         return tuple(normalized_roads)
+
+    @staticmethod
+    def _normalize_imported_road_link(link, road_index, relation):
+        if link is None:
+            return None
+        if not isinstance(link, Mapping):
+            raise TypeError(
+                f"{relation} for imported road {road_index} must be a mapping"
+            )
+
+        element_type = link.get("element_type", link.get("elementType"))
+        element_id = link.get("element_id", link.get("elementId"))
+        contact_point = link.get("contact_point", link.get("contactPoint"))
+        if element_type is None or element_id is None:
+            raise ValueError(
+                f"{relation} for imported road {road_index} must contain "
+                "element_type and element_id"
+            )
+        if contact_point is not None and contact_point not in ("start", "end"):
+            raise ValueError(
+                f"{relation} for imported road {road_index} has invalid "
+                f"contact point {contact_point!r}"
+            )
+        return ImportedRoadLink(
+            element_type=str(element_type),
+            element_id=str(element_id),
+            contact_point=contact_point,
+        )
+
+    def _road_topology_connections(self) -> tuple[LineString, ...]:
+        """Create routing-only joins for explicitly linked OpenDRIVE roads."""
+
+        roads_by_source_id = {
+            road.source_road_id: road
+            for road in self.xodr_roads
+            if road.source_road_id is not None
+        }
+        connections = []
+        seen = set()
+        for road in self.xodr_roads:
+            for own_contact, link, own_node in (
+                ("start", road.predecessor, road.nodes[0]),
+                ("end", road.successor, road.nodes[-1]),
+            ):
+                if link is None or link.element_type != "road":
+                    continue
+                linked_road = roads_by_source_id.get(link.element_id)
+                if linked_road is None or link.contact_point is None:
+                    continue
+                linked_node = (
+                    linked_road.nodes[0]
+                    if link.contact_point == "start"
+                    else linked_road.nodes[-1]
+                )
+                edge_key = frozenset((
+                    (road.source_road_id, own_contact),
+                    (link.element_id, link.contact_point),
+                ))
+                if edge_key in seen:
+                    continue
+                seen.add(edge_key)
+                start = (own_node[0], own_node[1])
+                end = (linked_node[0], linked_node[1])
+                if math.dist(start, end) > _MIN_GEOMETRY_SIZE_M:
+                    connections.append(LineString((start, end)))
+        return tuple(connections)
 
     @classmethod
     def _normalize_building_polygons(
@@ -675,7 +767,9 @@ class RoadBoundaryObstacleBuilder:
         if not self.corridor.covers(goal_point):
             raise ValueError("goal point must lie within the road corridor")
 
-        noded_centerlines = unary_union(self.road_centerlines)
+        noded_centerlines = unary_union(
+            (*self.road_centerlines, *self.road_topology_connections)
+        )
         network_segments = []
         for line in self._line_parts(noded_centerlines):
             coordinates = list(line.coords)
@@ -814,10 +908,10 @@ class RoadBoundaryObstacleBuilder:
         cut_parameters[goal_segment].append(goal_parameter)
 
         adjacency: dict[
-            tuple[float, float],
-            list[tuple[tuple[float, float], float]],
+            tuple[int, int],
+            list[tuple[tuple[int, int], float]],
         ] = {}
-        positions: dict[tuple[float, float], tuple[float, float]] = {}
+        positions: dict[tuple[int, int], tuple[float, float]] = {}
 
         for index, (segment_start, segment_end) in enumerate(segments):
             dx = segment_end[0] - segment_start[0]
@@ -850,7 +944,7 @@ class RoadBoundaryObstacleBuilder:
             return [positions.get(start_key, start_projection)]
 
         distances = {start_key: 0.0}
-        previous: dict[tuple[float, float], tuple[float, float]] = {}
+        previous: dict[tuple[int, int], tuple[int, int]] = {}
         queue = [(0.0, start_key)]
         while queue:
             distance, node = heapq.heappop(queue)
@@ -877,10 +971,13 @@ class RoadBoundaryObstacleBuilder:
     @staticmethod
     def _network_node_key(
         point: tuple[float, float],
-    ) -> tuple[float, float]:
-        """Merge coordinates that differ only by sub-nanometre roundoff."""
+    ) -> tuple[int, int]:
+        """Merge routing coordinates within the numerical snap tolerance."""
 
-        return round(point[0], 9), round(point[1], 9)
+        return (
+            round(point[0] / _NETWORK_NODE_SNAP_TOLERANCE_M),
+            round(point[1] / _NETWORK_NODE_SNAP_TOLERANCE_M),
+        )
 
     @staticmethod
     def _normalize_query_point(point: Point | Sequence[float]) -> Point:

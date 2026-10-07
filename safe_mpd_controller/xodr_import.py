@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+import xml.etree.ElementTree as ET
 
 from beamngpy import MeshRoad, Scenario, Road
 from beamngpy.tools import OpenDriveImporter
@@ -7,6 +8,30 @@ from beamngpy.tools.opendrive_import import Road as OpenDriveRoad
 
 
 class OpenDriveExtendedImporter(OpenDriveImporter):
+    @staticmethod
+    def extract_road_topology(filename):
+        """Return OpenDRIVE road links keyed by their source road IDs."""
+
+        root = ET.parse(filename).getroot()
+        topology = {}
+        for road in root.findall("road"):
+            road_id = road.get("id")
+            if road_id is None:
+                continue
+
+            road_topology = {"junction": road.get("junction", "-1")}
+            for relation in ("predecessor", "successor"):
+                link = road.find(f"./link/{relation}")
+                if link is None:
+                    continue
+                road_topology[relation] = {
+                    "element_type": link.get("elementType"),
+                    "element_id": link.get("elementId"),
+                    "contact_point": link.get("contactPoint"),
+                }
+            topology[str(road_id)] = road_topology
+        return topology
+
     @staticmethod
     def node_distance(a, b):
         return math.sqrt(
@@ -192,6 +217,8 @@ class OpenDriveExtendedImporter(OpenDriveImporter):
     @staticmethod
     def import_xodr(filename, scenario: Scenario, road_properties):
 
+        road_topology = OpenDriveExtendedImporter.extract_road_topology(filename)
+
         # Extract the road data primitives from the OpenDrive file.
         print("Extracting road data from file...")
         lines, arcs, spirals, polys, cubics = OpenDriveImporter.extract_road_data(
@@ -290,6 +317,7 @@ class OpenDriveExtendedImporter(OpenDriveImporter):
         for i, r in enumerate(roads):
             base_nodes = [tuple(x[:4]) for x in r.nodes]
             road_id = f"road_{i}"
+            source_road_id = r.name.removeprefix("imported_")
             render_nodes = base_nodes
 
             if road_properties.get("smooth_render_nodes", False):
@@ -353,8 +381,10 @@ class OpenDriveExtendedImporter(OpenDriveImporter):
                 scenario.add_road(asphalt)
             imported_roads.append({
                 "rid": road_id,
+                "source_road_id": source_road_id,
                 "nodes": render_nodes,
                 "source_nodes": base_nodes,
+                **road_topology.get(source_road_id, {}),
             })
 
         print("Import complete.")

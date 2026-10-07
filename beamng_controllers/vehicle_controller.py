@@ -174,7 +174,6 @@ def run_vehicle_controller(
         if run_id is None:
             snapshot = blackboard.wait_for_ready()
             run_id = snapshot.run_id
-        blackboard.mark_running(run_id)
 
         running_scenario = beamng_client.scenario.get_current()
         print(f"[CONTROLLER] Connected to scenario: {running_scenario.name}")
@@ -190,6 +189,7 @@ def run_vehicle_controller(
             vehicle.focus()
 
         controller = build_controller(vehicle, controller_args)
+        blackboard.mark_running(run_id)
 
         beamng_client.resume()
         for index in range(iterations):
