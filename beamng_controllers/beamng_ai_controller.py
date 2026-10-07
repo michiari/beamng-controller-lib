@@ -3,11 +3,11 @@ from argparse import ArgumentParser
 from .controller_wrapper import ControllerWrapper
 
 
-DEFAULT_ROUTE_SPEED = 100.0 / 3.6
-DEFAULT_ROUTE_SPEED_MODE = "set"
+DEFAULT_ROUTE_SPEED = None
+DEFAULT_ROUTE_SPEED_MODE = None
 DEFAULT_DRIVE_IN_LANE = True
 DEFAULT_AVOID_CARS = True
-ROUTE_SPEED_MODES = ("limit", "set")
+ROUTE_SPEED_MODES = ("limit", "set", None)
 
 
 def _parse_waypoints(value):
@@ -117,6 +117,7 @@ class BeamNGAIController(ControllerWrapper):
             self.started = True
             self.vehicle.ai.set_mode("manual")
             # TODO We probably need to set a speed limit as well
+            print("Starting AI driving using waypoints:", self.waypoints, self.drive_options)
             self.vehicle.ai.drive_using_waypoints(
                 self.waypoints,
                 **self.drive_options,
