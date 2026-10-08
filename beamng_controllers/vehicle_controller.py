@@ -3,6 +3,7 @@
 import argparse
 import os
 import time
+import traceback
 
 from beamngpy import BeamNGpy, set_up_simple_logging
 
@@ -41,6 +42,10 @@ def build_parser():
     )
     parser.add_argument("--run-id", default=None, help="Run ID to use for the blackboard")
     parser.add_argument("--vehicle-id", default=DEFAULT_VEHICLE_ID)
+    parser.add_argument("--initial-delay", 
+                        type=float, 
+                        default=0.0,
+                        help="Number of seconds before the agent start to drive")
     parser.add_argument(
         "--iterations",
         type=int,
@@ -94,6 +99,10 @@ def connect_vehicle(client, active_vehicles, vehicle_id):
 
     vehicle = active_vehicles[vehicle_id]
     vehicle.connect(client)
+    if "timer" not in vehicle.sensors.data:
+        from beamngpy.sensors import Timer
+        vehicle.attach_sensor("timer", Timer())
+
     return vehicle
 
 
@@ -117,8 +126,9 @@ def wait_for_active_vehicles(client, vehicle_ids, timeout_s):
 
 
 def stop_vehicle(vehicle):
+    # TODO This is not OK. it will cause the vehicle to move backward!
     try:
-        vehicle.control(throttle=0.0, steering=0.0, brake=1.0)
+        vehicle.control(throttle=0.0, steering=0.0, brake=0.0)
     except Exception as exc:
         vehicle_id = getattr(vehicle, "vid", "<unknown>")
         print(f"[CONTROLLER] Could not stop {vehicle_id!r}: {exc}")
@@ -160,9 +170,10 @@ def run_vehicle_controller(
     control_interval_s,
     focus_vehicle,
     connect_timeout_s,
+    initial_delay_s,
     controller_args,
 ):
-    set_up_simple_logging()
+    # set_up_simple_logging()
 
     beamng_client = BeamNGpy(host=beamng_host, port=beamng_port, home=beamng_home, user=beamng_user)
     vehicle = None
@@ -171,12 +182,14 @@ def run_vehicle_controller(
         beamng_client.open(launch=False)
 
         blackboard = BeamNGBlackboard(beamng_client)
+        
+        # Wait until the scenario is ready
         if run_id is None:
             snapshot = blackboard.wait_for_ready()
             run_id = snapshot.run_id
 
         running_scenario = beamng_client.scenario.get_current()
-        print(f"[CONTROLLER] Connected to scenario: {running_scenario.name}")
+        print(f"[CONTROLLER-{vehicle_id}] Connected to scenario: {running_scenario.name}")
 
         active_vehicles = wait_for_active_vehicles(
             beamng_client,
@@ -189,21 +202,46 @@ def run_vehicle_controller(
             vehicle.focus()
 
         controller = build_controller(vehicle, controller_args)
-        blackboard.mark_running(run_id)
 
+        # Mark the vehicle ready
+        # TODO Extend by passing an additional str meant to quality this event with the vehicle_id
+        blackboard.mark_vehicle_ready(run_id, vehicle_id)
+        print(f"[CONTROLLER-{vehicle_id}] Marked {vehicle_id} as ready !")
+
+        # Wait until the scenario is running, meaning all the vehicles are ready
+        snapshot = blackboard.wait_for_running(run_id)
+        print(f"[CONTROLLER-{vehicle_id}] Scenario started!")
+
+        # Apply the initial delay, if any
+        # TODO This really should be based on the simulation time, not the real 
+        if initial_delay_s:
+            print(f"[CONTROLLER-{vehicle_id}] Sleep for {initial_delay_s} seconds before starting")
+            vehicle.sensors.poll()
+            current_time = vehicle.sensors["timer"]["time"]
+            start_time = current_time
+            while current_time - start_time <= initial_delay_s:
+                time.sleep(0.1)
+                vehicle.sensors.poll()
+                current_time = vehicle.sensors["timer"]["time"]
+                
+        else:
+            print(f"[CONTROLLER-{vehicle_id}] No sleep before starting")
+
+        print(f"[CONTROLLER-{vehicle_id}] Start !")
         beamng_client.resume()
         for index in range(iterations):
             controller.next_control()
 
-            print(f"[CONTROLLER] Command {index + 1:02d}/{iterations}.")
+            print(f"[CONTROLLER-{vehicle_id}] Command {index + 1:02d}/{iterations}.")
 
             if control_interval_s:
                 time.sleep(control_interval_s)
 
             if not blackboard.is_running(run_id):
-                print(f"[CONTROLLER] Run {run_id} is not running any more. Stopping controller...")
+                print(f"[CONTROLLER-{vehicle_id}] Run {run_id} is not running any more. Stopping controller...")
                 break
-
+    except Exception:
+        traceback.print_exc()
     finally:
         if vehicle is not None:
             stop_vehicle(vehicle)
@@ -214,8 +252,6 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     validate_args(parser, args)
-
-    set_up_simple_logging()
 
     run_vehicle_controller(
         beamng_host=args.host,
@@ -228,6 +264,7 @@ def main():
         control_interval_s=args.control_interval_s,
         focus_vehicle=args.focus_vehicle,
         connect_timeout_s=args.connect_timeout_s,
+        initial_delay_s=args.initial_delay,
         controller_args=args,
     )
 

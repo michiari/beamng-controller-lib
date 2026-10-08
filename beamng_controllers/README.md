@@ -32,3 +32,5 @@ python -m beamng_controllers.vehicle_controller --help
 python -m beamng_controllers.vehicle_controller random --help
 python -m beamng_controllers.vehicle_controller beamng-ai --help
 ```
+# Additions from 0.1.0
+Initial delay option
