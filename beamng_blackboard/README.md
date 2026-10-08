@@ -2,6 +2,8 @@
 
 A lightweight blackboard-inspired component that uses BeamNG.tech as shared memory to synchronize remote driving agents with a central component managing the simulation of a scenario.
 
+## Last update
+Extended to handle multiple vehicles (still draft/WIP)
 ## Installation 
 
 Check the compatibility of your environment here: [BeamNGpy Compatibility](https://documentation.beamng.com/api/beamngpy/master/compatibility.html)
@@ -25,16 +27,22 @@ new run ------------>| PREPARING |
                            |
                            | finished setup (main controller)
                            v
-                       +-------+
-                       | READY |
-                       +---+---+
+                   +----------------+
+                   | SCENARIO READY |
+                   +-------+--------+
                            |
-                           | start driving (driver)
+                           |
                            v
+                   +----------------+
+                   |VEHICLE(s)READY |
+                   +-------+--------+
+                           |
+                           |
+                           v 
                       +---------+
                       | RUNNING |
-                      +----+----+
-                           |
+                      +----+----+ 
+                           | start driving (driver)
               +------------+-------------+
               |                          |
               v                          v

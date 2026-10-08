@@ -12,7 +12,8 @@ from beamngpy import BeamNGpy
 # Definition of the states associated with the FSM modelling a scenario execution
 class Phase(str, Enum):
     PREPARING = "preparing"
-    READY = "ready"
+    SCENARIO_READY = "scenario ready"
+    VEHICLE_READY = "vehicle ready"
     RUNNING = "running"
     ENDED = "ended"
     FAILED = "failed"
@@ -35,6 +36,7 @@ class Snapshot:
     run_id: str
     phase: str
     revision: int
+    registeredVehicles: int = 0
     reason: Optional[str] = None
 
     @property
@@ -85,7 +87,7 @@ class BeamNGBlackboard:
         self,
         bng: BeamNGpy,
         *,
-        poll_interval: float = 0.02,
+        poll_interval: float = 0.1,
     ):
         
         self.bng = bng
@@ -128,7 +130,8 @@ end
 return jsonEncode({{
     run_id = b.run_id,
     phase = b.phase,
-    revision = b.revision or 0,
+    revision = (b.revision or 0),
+    registeredVehicles = (b.registeredVehicles or 0),
     reason = b.reason
 }})
 """
@@ -139,6 +142,7 @@ return jsonEncode({{
             phase=Phase(result["phase"]),
             revision=int(result.get("revision", 0)),
             reason=result.get("reason"),
+            registeredVehicles=int(result.get("registeredVehicles", 0))
         )
 
     # ------------------------------------------------------------------
@@ -190,9 +194,76 @@ return jsonEncode({{
         """
         self._transition(
             run_id,
-            target=Phase.READY,
+            target=Phase.SCENARIO_READY,
             allowed={Phase.PREPARING},
         )
+
+    def mark_vehicle_ready(self, run_id: str, vehicle_id:str) -> None:
+        """
+        Transition the state of the scenario to be RUNNING. Meaning the (client) driver agent
+        can start driving
+
+        Note: This call succeeds only if the current state if READY
+        """
+        self._transition(
+            run_id,
+            target=Phase.VEHICLE_READY,
+            allowed={Phase.SCENARIO_READY, Phase.VEHICLE_READY}, # This is an accumulator state
+        )
+
+    def mark_running(self, run_id: str) -> None:
+        """
+        Transition the state of the scenario to be RUNNING. Meaning the (client) driver agent
+        can start driving
+
+        Note: This call succeeds only if the current state if READY
+        """
+        self._transition(
+            run_id,
+            target=Phase.RUNNING,
+            allowed={Phase.VEHICLE_READY},
+        )
+
+    def wait_vehicles_ready(self,
+                n_vehicles: int = 1,
+                after_run_id: Optional[str] = None,
+                timeout: Optional[float] = None,
+                
+            ) -> Snapshot:
+        """
+        Wait for a READY scenario.
+
+        If after_run_id is supplied, that run is ignored. This is what
+        allows a persistent driver process to wait for the next scenario.
+        """
+
+        start = time.monotonic()
+
+        print(f"[BLACKBOARD] Waiting for a {n_vehicles} to register (after_run_id={after_run_id!r})...")
+
+        while True:
+            # Poll the state
+            state = self.read()
+
+            if (
+                state is not None
+                and state.phase == Phase.VEHICLE_READY.value
+                and (
+                    after_run_id is None
+                    or state.run_id != after_run_id
+                )
+            ):
+                if state.registeredVehicles == n_vehicles:
+                    print(f"[BLACKBOARD] Scenario {state.run_id} all vehicles READY.")
+                    return state
+
+            if timeout is not None:
+                if time.monotonic() - start >= timeout:
+                    raise TimeoutError(
+                        f"Timed out waiting for all vehicles to register! Registered {state.registeredVehicles if state is not None else 0} out of {n_vehicles}"
+                    )
+
+            time.sleep(self.poll_interval)
 
     def finish(self, run_id: str, reason: Optional[str] = None) -> None:
         """
@@ -205,7 +276,7 @@ return jsonEncode({{
             target=Phase.ENDED,
             allowed={
                 Phase.PREPARING,
-                Phase.READY,
+                Phase.SCENARIO_READY,
                 Phase.RUNNING,
             },
             reason=reason,
@@ -224,34 +295,22 @@ return jsonEncode({{
             target=Phase.FAILED,
             allowed={
                 Phase.PREPARING,
-                Phase.READY,
+                Phase.SCENARIO_READY,
                 Phase.RUNNING,
             },
             reason=reason,
         )
+    
 
     # ------------------------------------------------------------------
     # Driver-controller operations
     # ------------------------------------------------------------------
-    # TODO How the client knows what's the correct run_id?
-    def mark_running(self, run_id: str) -> None:
-        """
-        Transition the state of the scenario to be RUNNING. Meaning the (client) driver agent
-        takes control of the vehicle.
-
-        Note: This call succeeds only if the current state if READY
-        """
-        self._transition(
-            run_id,
-            target=Phase.RUNNING,
-            allowed={Phase.READY},
-        )
-
-    def wait_for_ready(
+    def _wait_for(
         self,
-        *,
+        phase: Phase,
         after_run_id: Optional[str] = None,
         timeout: Optional[float] = None,
+        
     ) -> Snapshot:
         """
         Wait for a READY scenario.
@@ -259,16 +318,18 @@ return jsonEncode({{
         If after_run_id is supplied, that run is ignored. This is what
         allows a persistent driver process to wait for the next scenario.
         """
+        assert phase is Phase.SCENARIO_READY or phase is Phase.RUNNING
+
         start = time.monotonic()
 
-        print(f"[BLACKBOARD] Waiting for a ready BeamNG scenario (after_run_id={after_run_id!r})...")
+        print(f"[BLACKBOARD] Waiting for a {phase.value} BeamNG scenario (after_run_id={after_run_id!r})...")
         while True:
             # Poll the state
             state = self.read()
 
             if (
                 state is not None
-                and state.phase == Phase.READY.value
+                and state.phase == phase.value
                 and (
                     after_run_id is None
                     or state.run_id != after_run_id
@@ -285,6 +346,26 @@ return jsonEncode({{
 
             time.sleep(self.poll_interval)
 
+
+    def wait_for_ready(
+            self,
+            after_run_id: Optional[str] = None,
+            timeout: Optional[float] = None,
+            
+        ) -> Snapshot:
+        return self._wait_for(Phase.SCENARIO_READY, after_run_id, timeout)
+
+
+    def wait_for_running(
+            self,
+            after_run_id: Optional[str] = None,
+            timeout: Optional[float] = None,
+            
+        ) -> Snapshot:
+        # wHY DO WE NEED AN AFTER RUNNING ID HERE?
+        # return  self._wait_for(Phase.RUNNING, after_run_id, timeout)
+        return  self._wait_for(Phase.RUNNING, timeout=timeout)
+
     # TODO: where is this used?
     # THis should be withing the "wait_for_ready"
     # What shall we do if the client joins an already running scenario?
@@ -295,7 +376,7 @@ return jsonEncode({{
             state is not None
             and state.run_id == run_id
             and state.phase in {
-                Phase.READY.value,
+                Phase.SCENARIO_READY.value,
                 Phase.RUNNING.value,
             }
         )
@@ -334,7 +415,7 @@ return jsonEncode({{
     def _transition(
         self,
         run_id: str,
-        *,
+        *args,
         target: Phase,
         allowed: set[Phase],
         reason: Optional[str] = None,
@@ -351,7 +432,7 @@ return jsonEncode({{
             f"[\"{_lua_string(p.value)}\"] = true"
             for p in allowed
         )
-
+ 
         # TODO: Why do we need a revision?
         result = self._execute(
 f"""
@@ -387,16 +468,19 @@ end
 b.phase = "{target_lua}"
 b.reason = {reason_lua if reason_lua == "nil" else '"' + reason_lua + '"'}
 b.revision = (b.revision or 0) + 1
+b.registeredVehicles = (b.registeredVehicles or 0)
+{ "b.registeredVehicles = b.registeredVehicles + 1" if target is Phase.VEHICLE_READY else " "}
 
 return jsonEncode({{
     ok = true,
-    revision = b.revision
+    revision = b.revision,
+    registeredVehicles = b.registeredVehicles
 }})
 """
         )
 
         if result["ok"]:
-            print(f"[BLACKBOARD] Scenario {run_id} transitioned to {target.value}.")
+            print(f"[BLACKBOARD] Scenario {run_id} transitioned to {target.value}. Registered vehicles {result['registeredVehicles']}")
             return
 
         error = result.get("error")

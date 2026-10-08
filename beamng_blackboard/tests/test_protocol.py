@@ -31,7 +31,7 @@ def test_blackboard(running_beamng: BeamNGpy):
     
     assert snapshot is not None, "No snapshot"
     assert snapshot.run_id == run_id, f"{snapshot.run_id} is not the expected one {run_id}"
-    assert snapshot.phase is Phase.READY
+    assert snapshot.phase is Phase.SCENARIO_READY
 
     # TODO Skip the wait for READY check 
 
