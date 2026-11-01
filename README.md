@@ -9,6 +9,7 @@ third-party requirements can be placed in separate virtual environments.
 | `beamng_blackboard` | `beamng-blackboard` | API for synchronizing the scenario-creating process with controllers. |
 | `beamng_controllers` | `beamng-controllers` | Shared controller API and lightweight example controllers. |
 | `safe_mpd_controller` | `beamng-safe-mpd-controller` | Controller using [Safe-MPD](https://github.com/cps-atlas/safe-mpd). |
+| `dflat_controller` | `beamng-dflat-controller` | Controller using a local DFLAT-AIT checkout; see its [setup and usage](dflat_controller/README.md). |
 
 If you don't know where to start, `beamng-controllers` contains two simple
 controllers: one that steers the car in random directions, and one that drives
@@ -32,3 +33,5 @@ non-editable wheel omits planner subpackages required by this controller.
 
 The packages expose `beamng-vehicle-controller` and
 `beamng-safe-mpd-controller` command-line programs respectively.
+The DFLAT integration exposes `beamng-dflat-controller` and can run the planner
+in a separate Python environment without installing Safe-MPD itself.

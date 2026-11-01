@@ -7,14 +7,10 @@ import shutil
 from pathlib import Path
 import time
 
-import matplotlib
-matplotlib.use('TKAgg')
-
 from beamngpy import BeamNGpy, Scenario, Vehicle, angle_to_quat, set_up_simple_logging
 
 from beamng_blackboard import BeamNGBlackboard
 from beamng_controllers.vehicle_controller import wait_for_active_vehicles
-from .safe_mpd import SafeMPDController
 from .utils import load_building_polygons
 from .xodr_import import OpenDriveExtendedImporter
 
@@ -115,7 +111,11 @@ def stop_vehicle(vehicle):
         time.sleep(0.1)
 
 
-def build_parser():
+def build_parser(controller_type=None):
+    if controller_type is None:
+        from .safe_mpd import SafeMPDController
+        controller_type = SafeMPDController
+
     parser = argparse.ArgumentParser(
         description=(
             "Connect to an existing BeamNG scenario and control the two "
@@ -167,12 +167,14 @@ def build_parser():
         help="Existing OpenDRIVE file.",
     )
     
-    SafeMPDController.build_parser(parser)
+    controller_type.build_parser(parser)
 
     return parser
 
 
 def build_controller(vehicle, args):
+    from .safe_mpd import SafeMPDController
+
     # TODO: see if we can avoid creating a Scenario here
     scenario = Scenario("tech_ground", "safe_mpd_xodr_import")
     imported_roads = OpenDriveExtendedImporter.import_xodr(
@@ -223,10 +225,12 @@ def run_vehicle_controller(
     use_trailer,
     connect_timeout_s,
     controller_args,
+    controller_factory=None,
 ):
     set_up_simple_logging()
 
-    controller = build_controller(None, controller_args)
+    factory = build_controller if controller_factory is None else controller_factory
+    controller = factory(None, controller_args)
     controller.plan_entire_route()
 
     beamng_client = BeamNGpy(host=beamng_host, port=beamng_port, home=beamng_home, user=beamng_user)
@@ -319,8 +323,8 @@ def run_vehicle_controller(
         beamng_client.disconnect()
 
 
-def main():
-    parser = build_parser()
+def main(controller_type=None, controller_factory=None):
+    parser = build_parser(controller_type)
     args = parser.parse_args()
 
     set_up_simple_logging()
@@ -337,6 +341,7 @@ def main():
         use_trailer=args.trailer,
         connect_timeout_s=args.connect_timeout_s,
         controller_args=args,
+        controller_factory=controller_factory,
     )
 
 

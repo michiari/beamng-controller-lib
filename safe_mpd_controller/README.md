@@ -32,3 +32,34 @@ For more usage options, consult
 ```bash
 python -m safe_mpd_controller.safe_mpd_controller --help
 ```
+
+To export the same road-wall and building obstacles for DFLAT-AIT, call
+`export_dflat_map` on a configured builder:
+
+```python
+from shapely.geometry import LineString
+from safe_mpd_controller.obstacle_builder import RoadBoundaryObstacleBuilder
+
+builder = RoadBoundaryObstacleBuilder(
+    road_centerlines=[LineString([(0, 0), (50, 0)])],
+    road_width_m=8.0,
+)
+builder.export_dflat_map(
+    "road_map.json",
+    start=(5.0, 0.0, 0.0),
+    goal=(45.0, 0.0, 0.0),
+)
+```
+
+Start and goal are rear-axle `(x, y, heading)` poses in metres and radians,
+using the input geometry's world coordinates. BeamNG XYZ positions need their
+height replaced with the intended heading. The optional `name` defaults to
+the filename stem; `environment_margin_m` defaults to 1 metre around the map
+plus half the wall thickness. The destination directory must exist, and an
+existing file is overwritten.
+
+Run the exported map from the DFLAT-AIT checkout:
+
+```bash
+python run_dflat.py /absolute/path/to/road_map.json --model car
+```

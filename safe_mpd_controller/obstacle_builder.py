@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+import json
 import math
 import heapq
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from shapely import Geometry
@@ -8,9 +10,6 @@ from shapely.affinity import rotate, translate
 from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point
 from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
-
-from mbd.envs.env import Env
-
 
 _MIN_GEOMETRY_SIZE_M = 1e-9
 _IMPORTED_CENTERLINE_CLEANUP_TOLERANCE_M = 1e-9
@@ -1080,6 +1079,65 @@ class RoadBoundaryObstacleBuilder:
             )
         return self._obstacles
 
+    def export_dflat_map(
+        self,
+        path: str | Path,
+        *,
+        start: Sequence[float],
+        goal: Sequence[float],
+        name: str | None = None,
+        environment_margin_m: float = 1.0,
+    ) -> Path:
+        """Write road walls and buildings as a DFLAT-AIT JSON map.
+
+        ``start`` and ``goal`` are rear-axle poses ``(x, y, heading_radians)``
+        in the input geometry's world coordinates (metres), not BeamNG XYZ
+        positions. Bounds use DFLAT's ``[xmin, xmax, ymin, ymax]`` order.
+        The destination's parent directory must exist; an existing file is
+        overwritten. The map name defaults to the destination's stem.
+        """
+
+        path = Path(path)
+        margin = self._require_non_negative(
+            "environment_margin_m", environment_margin_m
+        )
+        poses = {}
+        for label, pose in (("start", start), ("goal", goal)):
+            try:
+                if len(pose) != 3:
+                    raise ValueError
+                values = [float(value) for value in pose]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{label} must contain exactly three finite (x, y, heading) values"
+                ) from exc
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError(f"{label} must contain only finite values")
+            poses[label] = values
+
+        obstacles = self.build()
+        polys = []
+        for center_x, center_y, width, height, angle in obstacles.rectangles:
+            rectangle = box(-width / 2, -height / 2, width / 2, height / 2)
+            rectangle = rotate(rectangle, angle, origin=(0.0, 0.0), use_radians=True)
+            rectangle = translate(rectangle, xoff=center_x, yoff=center_y)
+            polys.append(list(rectangle.exterior.coords)[:-1])
+
+        min_x, min_y, max_x, max_y = obstacles.road_bounds
+        wall_padding = margin + self.boundary_thickness_m * 0.5
+        xlim = [min_x - wall_padding, max_x + wall_padding]
+        ylim = [min_y - wall_padding, max_y + wall_padding]
+        data = {
+            "name": path.stem if name is None else name,
+            "bounds": [*xlim, *ylim],
+            "xlim": xlim,
+            "ylim": ylim,
+            **poses,
+            "polys": polys,
+        }
+        path.write_text(json.dumps(data, allow_nan=False), encoding="utf-8")
+        return path
+
     def plot_debug(
         self,
         waypoints: Iterable[Sequence[float]],
@@ -1297,6 +1355,8 @@ class RoadBoundaryObstacleBuilder:
         resolution: float = 0.1
     ):
         """Create a navigation ``mbd.Env`` for this configured road map."""
+
+        from mbd.envs.env import Env
 
         resolution = self._require_positive("resolution", resolution)
         obstacles = self.build()

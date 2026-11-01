@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beamng-dflat-controller"
+version = "0.1.0"
+description = "A BeamNG.tech vehicle controller using a local DFLAT-AIT planner"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beamng-controllers>=0.1.1",
+    "beamng-blackboard>=0.1.1",
+    "beamng-safe-mpd-controller>=0.1.0",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+beamng-dflat-controller = "dflat_controller.dflat_controller:main"
+
+[tool.setuptools]
+packages = ["dflat_controller"]
+package-dir = { dflat_controller = "." }
