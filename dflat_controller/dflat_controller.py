@@ -1,29 +1,31 @@
-"""Command-line entry point using the shared OpenDRIVE/BeamNG lifecycle."""
+"""Command-line entry point using shared road sources and BeamNG lifecycle."""
 
-from beamngpy import Scenario
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from safe_mpd_controller.safe_mpd_controller import build_parser as shared_parser, main as shared_main
+from safe_mpd_controller.safe_mpd_controller import (
+    build_parser as shared_parser, main as shared_main, load_controller_roads,
+)
 from safe_mpd_controller.utils import load_building_polygons
-from safe_mpd_controller.xodr_import import OpenDriveExtendedImporter
 
-from .dflat import DFLATController
+from dflat_controller.dflat import DFLATController
+from safe_mpd_controller.beamng_roads import prepare_planning_roads
 
 
 def build_parser():
     return shared_parser(DFLATController)
 
 
-def build_controller(vehicle, args):
+def build_controller(vehicle, args, *, beamng=None):
     if args.trailer:
-        raise ValueError("DFLAT-AIT supports cars only; --trailer is not supported")
-    roads = OpenDriveExtendedImporter.import_xodr(
-        str(args.xodr_file), Scenario("tech_ground", "dflat_xodr_import"),
-        {
-            "material": "road_asphalt_light", "default_width": args.lane_width * 2.0,
-            "drivability": 1, "texture_length": 50.0,
-            "surface_type": "decal", "min_elevation": 0.0,
-        },
-    )
+        raise ValueError("DFLAT supports cars only; --trailer is not supported")
+    roads = load_controller_roads(args, beamng)
+    if args.beamng_roads:
+        roads = prepare_planning_roads(
+            roads, args.goal_pos, args.endpoint_tolerance_m, args.goal_runout_m,
+        )
     return DFLATController(
         vehicle, roads, args.lane_width, args.spawn_pos, args.goal_pos,
         dflat_root=args.dflat_root, dflat_python=args.dflat_python,
@@ -36,6 +38,11 @@ def build_controller(vehicle, args):
         buildings=load_building_polygons(args.buildings) if args.buildings else None,
         debug=args.debug,
         debug_output_dir=args.debug_output_dir,
+        spawn_heading=getattr(args, "spawn_heading", None),
+        road_height_offset_m=args.road_height_offset_m,
+        script_cling=args.script_cling,
+        # Dense float32 edge samples otherwise produce thousands of tiny walls.
+        boundary_simplify_tolerance_m=1e-3 if args.beamng_roads else 0.0,
     )
 
 

@@ -41,13 +41,15 @@ class ImportedRoadLink:
 
 @dataclass(frozen=True)
 class ImportedRoadGeometry:
-    """Normalized road record returned by OpenDriveExtendedImporter."""
+    """Normalized OpenDRIVE or BeamNG road geometry."""
 
     rid: str
     nodes: tuple[tuple[float, float, float, float], ...]
     source_road_id: str | None = None
     predecessor: ImportedRoadLink | None = None
     successor: ImportedRoadLink | None = None
+    left_edge: tuple[tuple[float, float, float], ...] | None = None
+    right_edge: tuple[tuple[float, float, float], ...] | None = None
 
 
 class RoadBoundaryObstacleBuilder:
@@ -59,10 +61,12 @@ class RoadBoundaryObstacleBuilder:
     corridor available is useful for callers that also need geometric checks
     or visualization without reconstructing the road map.
 
-    ``imported_roads`` accepts the list returned by
-    ``OpenDriveExtendedImporter.import_xodr``. Its rendered ``nodes`` and
-    per-node widths define a variable-width corridor. Supplying
+    ``xodr_roads`` accepts the list returned by
+    ``OpenDriveExtendedImporter.import_xodr`` or ``extract_beamng_roads``.
+    Its ``nodes`` and per-node widths define a variable-width corridor. Supplying
     ``road_width_m`` in this mode overrides every imported node width.
+    Optional ``left_edge``/``right_edge`` XYZ samples define the exact surface
+    instead when no width override is supplied.
 
     ``building_polygons`` accepts either world-coordinate Shapely polygons or
     the complete ``(normalized_polygons, offsets)`` tuple returned by
@@ -196,7 +200,7 @@ class RoadBoundaryObstacleBuilder:
         self,
         imported_roads: Iterable[Mapping[str, Any]],
     ) -> tuple[ImportedRoadGeometry, ...]:
-        """Validate and freeze OpenDriveExtendedImporter return values."""
+        """Validate and freeze imported road geometry."""
 
         try:
             roads = tuple(imported_roads)
@@ -271,6 +275,8 @@ class RoadBoundaryObstacleBuilder:
                     successor=self._normalize_imported_road_link(
                         road.get("successor"), road_index, "successor"
                     ),
+                    left_edge=self._normalize_road_edge(road, "left_edge", len(nodes)),
+                    right_edge=self._normalize_road_edge(road, "right_edge", len(nodes)),
                 )
             )
 
@@ -280,6 +286,20 @@ class RoadBoundaryObstacleBuilder:
                 "a positive width"
             )
         return tuple(normalized_roads)
+
+    @staticmethod
+    def _normalize_road_edge(road, key, count):
+        if road.get("left_edge") is None and road.get("right_edge") is None:
+            return None
+        try:
+            points = tuple(tuple(float(value) for value in point) for point in road[key])
+            if len(points) != count or any(
+                len(point) != 3 or not all(map(math.isfinite, point)) for point in points
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("road edges must both contain one finite XYZ sample per node") from exc
+        return points
 
     @staticmethod
     def _normalize_imported_road_link(link, road_index, relation):
@@ -602,10 +622,21 @@ class RoadBoundaryObstacleBuilder:
         return corridor
 
     def _build_imported_road_corridor(self) -> Polygon | MultiPolygon:
-        """Build variable-width surfaces from imported XODR road nodes."""
+        """Build surfaces from explicit edges or variable-width road nodes."""
 
         surface_parts = []
         for road in self.xodr_roads:
+            if road.left_edge is not None and self.road_width_m is None:
+                for index in range(len(road.nodes) - 1):
+                    polygon = Polygon([
+                        road.left_edge[index][:2], road.left_edge[index + 1][:2],
+                        road.right_edge[index + 1][:2], road.right_edge[index][:2],
+                    ])
+                    if not polygon.is_valid:
+                        polygon = polygon.buffer(0)
+                    if not polygon.is_empty:
+                        surface_parts.append(polygon)
+                continue
             widths = [node[3] for node in road.nodes]
             if max(widths) - min(widths) <= _IMPORTED_WIDTH_TOLERANCE_M:
                 # The importer emits many nearly collinear samples even for a

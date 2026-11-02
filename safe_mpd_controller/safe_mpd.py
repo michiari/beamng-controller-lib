@@ -31,7 +31,7 @@ class SafeMPDController(ControllerWrapper):
             self,
             vehicle,
             xodr_roads,
-            lane_width: float,
+            lane_width: float | None,
             spawn_pos: Float3,
             goal_pos: Float3,
             waypoint_spacing_m: float = 25.0,
@@ -44,7 +44,8 @@ class SafeMPDController(ControllerWrapper):
             horizon: int = 500,  # horizon
             diffusion_steps: int = 100, # number of diffusion steps
             buildings: Any = None,
-            debug: bool = False
+            debug: bool = False,
+            spawn_heading: float | None = None,
         ):
         self.vehicle = vehicle
         self.trajectory_states = None
@@ -52,7 +53,7 @@ class SafeMPDController(ControllerWrapper):
 
         obstacle_builder = RoadBoundaryObstacleBuilder(
             xodr_roads=xodr_roads,
-            road_width_m=lane_width * 2.0,
+            road_width_m=None if lane_width is None else lane_width * 2.0,
             building_polygons=buildings
         )
         self.base_env_config = obstacle_builder.create_mbd_env()
@@ -78,7 +79,7 @@ class SafeMPDController(ControllerWrapper):
         )
 
         obstacles = obstacle_builder.build()
-        print(f"Road centerlines: {len(obstacle_builder.road_centerlines)}; width: {lane_width * 2.0:.2f} m")
+        print(f"Road centerlines: {len(obstacle_builder.road_centerlines)}")
         print(
             "Boundary obstacles: "
             f"{len(obstacles.rectangles)} rectangles"
@@ -87,6 +88,10 @@ class SafeMPDController(ControllerWrapper):
         # obstacle_builder.plot_debug([spawn_pos, goal_pos], show=True)
 
         self.waypoints = obstacle_builder.waypoints_between(spawn_pos, goal_pos, spacing_m=waypoint_spacing_m)
+        if spawn_heading is not None:
+            if not math.isfinite(spawn_heading):
+                raise ValueError("spawn_heading must be finite radians")
+            self.waypoints[0] = (*self.waypoints[0][:2], float(spawn_heading))
         print(f"Generated waypoints: {len(self.waypoints)} points, {self.waypoints[0]} -> {self.waypoints[-1]}")
         self.first_waypoint, self.last_waypoint = self.waypoints[0], self.waypoints[-1]
 
@@ -261,8 +266,7 @@ class SafeMPDController(ControllerWrapper):
         parser.add_argument(
             "--lane-width",
             type=float,
-            required=True,
-            help="Lane width in metres",
+            help="Half road width override in metres; required with --xodr-file",
         )
         parser.add_argument(
             "--spawn-pos",
@@ -270,7 +274,7 @@ class SafeMPDController(ControllerWrapper):
             nargs=3,
             required=False,
             metavar=("X", "Y", "Z"),
-            help="Initial vehicle position",
+            help="Start XYZ; defaults to the vehicle's current pose with --beamng-roads",
         )
         parser.add_argument(
             "--goal-pos",

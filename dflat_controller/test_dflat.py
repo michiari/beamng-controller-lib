@@ -60,7 +60,7 @@ class DFLATControllerTests(unittest.TestCase):
         vehicle = Mock()
         controller.set_vehicle(vehicle)
         controller.control_entire_route()
-        vehicle.ai.set_script.assert_called_once_with(script)
+        vehicle.ai.set_script.assert_called_once_with(script, cling=True)
         self.assertFalse(Path(run.call_args.args[0][-1]).exists())
 
     def test_debug_output_path_is_resolved_and_passed_to_worker(self):
@@ -69,6 +69,27 @@ class DFLATControllerTests(unittest.TestCase):
             controller.plan_entire_route()
         self.assertEqual(self.settings["debug_output_dir"], str(Path("planning-debug").resolve()))
         self.assertTrue(self.settings["planner"]["denoise_gif"])
+
+    def test_none_lane_width_preserves_imported_widths(self):
+        roads = [{"rid": "variable", "nodes": [(0, 0, 0, 4), (30, 0, 0, 8)]}]
+        controller = DFLATController(
+            None, roads, None, (5, 0, 0), (20, 0, 0), dflat_root=self.root,
+        )
+        self.assertEqual([node[3] for node in controller.builder.xodr_roads[0].nodes], [4.0, 8.0])
+
+    def test_script_uses_road_elevation_and_configured_clinging(self):
+        roads = [{"rid": "slope", "nodes": [(0, 0, 2, 10), (30, 0, 8, 10)]}]
+        controller = DFLATController(
+            None, roads, None, (5, 0, 3), (20, 0, 6), dflat_root=self.root,
+            road_height_offset_m=0.25, script_cling=False,
+        )
+        with patch("dflat_controller.dflat.subprocess.run", side_effect=self.write_result):
+            script = controller.plan_entire_route()
+        np.testing.assert_allclose([point["z"] for point in script], [3.05, 4.25, 6.05])
+        vehicle = Mock()
+        controller.set_vehicle(vehicle)
+        controller.control_entire_route()
+        vehicle.ai.set_script.assert_called_once_with(script, cling=False)
 
     def test_failed_replan_clears_previous_script_and_propagates_error(self):
         controller = self.controller()
@@ -103,6 +124,8 @@ class DFLATControllerTests(unittest.TestCase):
             {"diffusion_steps": 1.5}, {"max_speed": math.nan},
             {"planning_timeout_s": -1}, {"steering_limit_deg": 90},
             {"wheelbase": 0}, {"rear_axle_offset_m": math.inf},
+            {"spawn_heading": math.nan},
+            {"road_height_offset_m": math.nan},
         ):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 self.controller(**settings)

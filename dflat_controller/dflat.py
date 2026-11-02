@@ -23,6 +23,9 @@ class DFLATController(ControllerWrapper):
         rear_overhang=1.10, vehicle_width=1.90, steering_limit_deg=35.0,
         rear_axle_offset_m=0.0, buildings=None, trailer=False, debug=False,
         debug_output_dir: str | Path | None = None,
+        spawn_heading=None,
+        road_height_offset_m=None, script_cling=True,
+        boundary_simplify_tolerance_m=0.0,
     ):
         if trailer:
             raise ValueError("DFLAT-AIT supports cars only; trailers are not supported")
@@ -68,16 +71,26 @@ class DFLATController(ControllerWrapper):
             ),
         }
         self.builder = RoadBoundaryObstacleBuilder(
-            xodr_roads=xodr_roads, road_width_m=lane_width * 2.0,
+            xodr_roads=xodr_roads,
+            road_width_m=None if lane_width is None else lane_width * 2.0,
             building_polygons=buildings,
+            simplify_tolerance_m=boundary_simplify_tolerance_m,
         )
         self.waypoints = self.builder.waypoints_between(
             spawn_pos, goal_pos, spacing_m=math.inf
         )
+        if spawn_heading is not None:
+            if not math.isfinite(spawn_heading):
+                raise ValueError("spawn_heading must be finite radians")
+            self.waypoints[0] = (*self.waypoints[0][:2], float(spawn_heading))
         self.first_waypoint, self.last_waypoint = self.waypoints[0], self.waypoints[-1]
         if self._comp_waypoints(self.first_waypoint, self.last_waypoint) < 1e-6:
             raise ValueError("spawn and goal must be different positions")
         self.spawn_height = float(spawn_pos[2])
+        if road_height_offset_m is not None and not math.isfinite(road_height_offset_m):
+            raise ValueError("road_height_offset_m must be finite")
+        self.road_height_offset_m = road_height_offset_m
+        self.script_cling = script_cling
         self.vehicle = vehicle
         self.ai_script = None
         self.trajectory_states = None
@@ -124,6 +137,15 @@ class DFLATController(ControllerWrapper):
             }
             for index, (x, y, heading) in enumerate(states[:, :3])
         ]
+        if self.road_height_offset_m is not None:
+            from shapely.geometry import LineString, Point
+
+            lines = [LineString([node[:3] for node in road.nodes])
+                     for road in self.builder.xodr_roads]
+            for node in self.ai_script:
+                point = Point(node["x"], node["y"])
+                line = min(lines, key=lambda candidate: candidate.distance(point))
+                node["z"] = line.interpolate(line.project(point)).z + self.road_height_offset_m
         self.trajectory_states = states
         return self.ai_script
 
@@ -141,7 +163,7 @@ class DFLATController(ControllerWrapper):
             raise ValueError("Vehicle must be set before calling control_entire_route")
         if self.ai_script is None:
             self.plan_entire_route()
-        self.vehicle.ai.set_script(self.ai_script)
+        self.vehicle.ai.set_script(self.ai_script, cling=self.script_cling)
 
     def next_control(self):
         self.control_entire_route()
@@ -165,8 +187,10 @@ class DFLATController(ControllerWrapper):
                             help="Local DFLAT-AIT checkout (or DFLAT_AIT_ROOT)")
         parser.add_argument("--dflat-python", default=sys.executable,
                             help="Python executable with DFLAT-AIT dependencies")
-        parser.add_argument("--lane-width", type=float, required=True)
-        parser.add_argument("--spawn-pos", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+        parser.add_argument("--lane-width", type=float,
+                            help="Half road width override in metres; required with --xodr-file")
+        parser.add_argument("--spawn-pos", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                            help="Start XYZ; defaults to the vehicle's current pose with --beamng-roads")
         parser.add_argument("--goal-pos", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
         parser.add_argument("--model", choices=("car", "acc"), default="car")
         parser.add_argument("--seed", type=int, default=1)
@@ -186,3 +210,11 @@ class DFLATController(ControllerWrapper):
         parser.add_argument("--debug", action="store_true", help="Plot road geometry before planning")
         parser.add_argument("--debug-output-dir", type=Path,
                             help="Save a trajectory PNG, denoising/tracking GIF, and CSV in a subdirectory per plan")
+        parser.add_argument("--endpoint-tolerance-m", type=float, default=0.0,
+                            help="Join extracted road endpoints within this XYZ distance for planning")
+        parser.add_argument("--goal-runout-m", type=float, default=0.0,
+                            help="Planning-only road continuation beyond a terminal goal for vehicle overhang")
+        parser.add_argument("--road-height-offset-m", type=float,
+                            help="Align script Z to extracted road heights plus this offset")
+        parser.add_argument("--no-script-cling", dest="script_cling", action="store_false",
+                            help="Disable ScriptAI terrain clinging")

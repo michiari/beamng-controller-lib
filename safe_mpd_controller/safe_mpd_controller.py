@@ -13,6 +13,7 @@ from beamng_blackboard import BeamNGBlackboard
 from beamng_controllers.vehicle_controller import wait_for_active_vehicles
 from .utils import load_building_polygons
 from .xodr_import import OpenDriveExtendedImporter
+from .beamng_roads import extract_beamng_roads
 
 
 DEFAULT_HOST = "localhost"
@@ -118,8 +119,8 @@ def build_parser(controller_type=None):
 
     parser = argparse.ArgumentParser(
         description=(
-            "Connect to an existing BeamNG scenario and control the two "
-            "vehicles created by process A."
+            "Connect to an existing BeamNG scenario, plan a route, "
+            "and control a vehicle."
         )
     )
     parser.add_argument("--host", default=DEFAULT_HOST)
@@ -136,9 +137,16 @@ def build_parser(controller_type=None):
         type=Path,
         help="BeamNG.tech user path. Defaults to BEAMNG_TECH_USER.",
     )
-    parser.add_argument("--run-id", default=None, help="Run ID to use for blackboard")
+    parser.add_argument(
+        "--run-id", default=None,
+        help="Run ID for blackboard; with --beamng-roads, omit for an unsynchronized connection",
+    )
     parser.add_argument("--wait-for-beamng", action="store_true", help="Wait for user input before connecting to BeamNG.tech.")
     parser.add_argument("--vehicle-id", default=DEFAULT_VEHICLE_ID)
+    parser.add_argument(
+        "--scenario-managed", action="store_true",
+        help="Let the scenario process own vehicle placement, simulation stepping and shutdown",
+    )
     parser.add_argument(
         "--focus-vehicle",
         action="store_true",
@@ -160,11 +168,15 @@ def build_parser(controller_type=None):
         default=10.0,
         help="Seconds to wait for vehicle to appear.",
     )
-    parser.add_argument(
+    road_source = parser.add_mutually_exclusive_group(required=True)
+    road_source.add_argument(
         "--xodr-file",
         type=Path,
-        required=True,
         help="Existing OpenDRIVE file.",
+    )
+    road_source.add_argument(
+        "--beamng-roads", action="store_true",
+        help="Extract road edges, widths and elevations from the loaded BeamNG scenario.",
     )
     
     controller_type.build_parser(parser)
@@ -172,14 +184,17 @@ def build_parser(controller_type=None):
     return parser
 
 
-def build_controller(vehicle, args):
-    from .safe_mpd import SafeMPDController
-
-    # TODO: see if we can avoid creating a Scenario here
-    scenario = Scenario("tech_ground", "safe_mpd_xodr_import")
-    imported_roads = OpenDriveExtendedImporter.import_xodr(
+def load_controller_roads(args, beamng=None):
+    """Load either shared road source without depending on a planner."""
+    if getattr(args, "beamng_roads", False):
+        if beamng is None:
+            raise ValueError("--beamng-roads requires a connected BeamNG client")
+        return extract_beamng_roads(beamng)
+    if args.lane_width is None or not math.isfinite(args.lane_width) or args.lane_width <= 0:
+        raise ValueError("--xodr-file requires a positive --lane-width")
+    return OpenDriveExtendedImporter.import_xodr(
         str(args.xodr_file),
-        scenario,
+        Scenario("tech_ground", "controller_xodr_import"),
         {
             "material": "road_asphalt_light",
             "default_width": args.lane_width * 2.0,
@@ -190,6 +205,11 @@ def build_controller(vehicle, args):
         },
     )
 
+
+def build_controller(vehicle, args, *, beamng=None):
+    from .safe_mpd import SafeMPDController
+
+    imported_roads = load_controller_roads(args, beamng)
     if args.buildings is not None:
         building_polygons, building_offsets = load_building_polygons(args.buildings)
 
@@ -209,7 +229,8 @@ def build_controller(vehicle, args):
         diffusion_steps=args.diffusion_steps,
         debug=args.debug,
         time_step=args.time_step,
-        buildings=(building_polygons, building_offsets) if args.buildings is not None else None
+        buildings=(building_polygons, building_offsets) if args.buildings is not None else None,
+        spawn_heading=getattr(args, "spawn_heading", None),
     )
 
 
@@ -230,24 +251,37 @@ def run_vehicle_controller(
     set_up_simple_logging()
 
     factory = build_controller if controller_factory is None else controller_factory
-    controller = factory(None, controller_args)
-    controller.plan_entire_route()
+    beamng_roads = getattr(controller_args, "beamng_roads", False)
+    controller = None
+    if not beamng_roads:
+        if controller_args.spawn_pos is None:
+            raise ValueError("--xodr-file requires --spawn-pos")
+        controller = factory(None, controller_args)
+        controller.plan_entire_route()
 
     beamng_client = BeamNGpy(host=beamng_host, port=beamng_port, home=beamng_home, user=beamng_user)
     vehicle = None
     trailer = None
     debug_trajectory_line = None
+    blackboard = None
+    control_started = False
+    spawn_from_vehicle = beamng_roads and controller_args.spawn_pos is None
+    scenario_managed = getattr(controller_args, "scenario_managed", False)
+    if scenario_managed and (not beamng_roads or run_id is None or respawn_vehicle):
+        raise ValueError("--scenario-managed requires --beamng-roads and --run-id, without --respawn-vehicle")
 
     try:
         if controller_args.wait_for_beamng:
             input("Press Enter to connect to BeamNG.tech...")
         beamng_client.open(launch=False)
 
-        blackboard = BeamNGBlackboard(beamng_client)
-        if run_id is None:
-            snapshot = blackboard.wait_for_ready()
-            run_id = snapshot.run_id
-        blackboard.mark_running(run_id)
+        if not beamng_roads or run_id is not None:
+            blackboard = BeamNGBlackboard(beamng_client)
+            if run_id is None:
+                snapshot = blackboard.wait_for_ready()
+                run_id = snapshot.run_id
+            if not beamng_roads:
+                blackboard.mark_running(run_id)
 
         # Wait before connecting the scenario. ``get_current()`` already
         # connects every vehicle, so connecting a second object returned by
@@ -268,12 +302,21 @@ def run_vehicle_controller(
         if vehicle is None:
             raise RuntimeError(f"Vehicle {vehicle_id!r} disappeared while connecting.")
 
+        beamng_client.pause()
+        if beamng_roads:
+            if spawn_from_vehicle:
+                vehicle.sensors.poll()
+                controller_args.spawn_pos = tuple(vehicle.state["pos"])
+                direction = vehicle.state["dir"]
+                controller_args.spawn_heading = math.atan2(direction[1], direction[0])
+            controller = factory(vehicle, controller_args, beamng=beamng_client)
+            controller.plan_entire_route()
+
         x, y, theta = controller.get_true_spawn_pos()
         pos_triple = (x, y, controller_args.spawn_pos[2])
         rot_quat = angle_to_quat((0, 0, -math.degrees(theta) - 90.0))
         # Keep newly spawned vehicles stationary while their coupling nodes are
         # aligned. Otherwise spawning both at the same origin causes a collision.
-        beamng_client.pause()
         if respawn_vehicle:
             vehicle.disconnect()
             running_scenario.remove_vehicle(vehicle)
@@ -287,7 +330,7 @@ def run_vehicle_controller(
             else:
                 vehicle = Vehicle(vehicle_id, model=DEFAULT_VEHICLE_MODEL, license=DEFAULT_LICENSE_PLATE)
                 running_scenario.add_vehicle(vehicle, pos=pos_triple, rot_quat=rot_quat, cling=True)
-        else:
+        elif not spawn_from_vehicle and not scenario_managed:
             vehicle.teleport(pos=pos_triple, rot_quat=rot_quat, reset=True)
         
         if focus_vehicle:
@@ -295,9 +338,15 @@ def run_vehicle_controller(
 
         controller.set_vehicle(vehicle)
         debug_trajectory_line = controller.add_debug_trajectory_line(beamng_client)
+        control_started = True
         controller.control_entire_route()
 
-        beamng_client.resume()
+        if beamng_roads and blackboard is not None:
+            blackboard.mark_vehicle_ready(run_id, vehicle_id)
+            blackboard.wait_for_running()
+
+        if not scenario_managed:
+            beamng_client.resume()
 
         while True:
             time.sleep(STATUS_POLLING_INTERVAL_S)
@@ -308,14 +357,14 @@ def run_vehicle_controller(
                 time.sleep(STATUS_POLLING_INTERVAL_S)
                 break
 
-            if not blackboard.is_running(run_id):
+            if blackboard is not None and not blackboard.is_running(run_id):
                 print(f"Run {run_id} is not running any more. Stopping controller...")
                 break
 
     finally:
         if debug_trajectory_line is not None:
             beamng_client.debug.remove_polyline(debug_trajectory_line)
-        if vehicle is not None:
+        if vehicle is not None and control_started and not scenario_managed:
             try:
                 stop_vehicle(vehicle)
             except Exception as exc:
@@ -326,6 +375,11 @@ def run_vehicle_controller(
 def main(controller_type=None, controller_factory=None):
     parser = build_parser(controller_type)
     args = parser.parse_args()
+    if not args.beamng_roads:
+        if args.lane_width is None or not math.isfinite(args.lane_width) or args.lane_width <= 0:
+            parser.error("--xodr-file requires a positive --lane-width")
+        if args.spawn_pos is None:
+            parser.error("--xodr-file requires --spawn-pos")
 
     set_up_simple_logging()
 
