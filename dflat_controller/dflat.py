@@ -196,7 +196,7 @@ class DFLATController(ControllerWrapper):
         parser.add_argument("--seed", type=int, default=1)
         parser.add_argument("--samples", type=int, default=192)
         parser.add_argument("--diffusion-steps", type=int, default=30)
-        parser.add_argument("--planning-timeout-s", type=float, default=300.0)
+        parser.add_argument("--planning-timeout-s", type=float, default=600.0)
         parser.add_argument("--time-step", type=float, default=0.25)
         parser.add_argument("--max-speed", type=float, default=3.0)
         parser.add_argument("--wheelbase", type=float, default=2.70)
