@@ -41,7 +41,7 @@ class DFLATControllerTests(unittest.TestCase):
         with patch("dflat_controller.dflat.subprocess.run", side_effect=self.write_result) as run:
             script = controller.plan_entire_route()
         self.assertEqual(run.call_args.args[0][0], "planner-python")
-        self.assertEqual(run.call_args.kwargs["timeout"], 300.0)
+        self.assertEqual(run.call_args.kwargs["timeout"], 900.0)
         self.assertEqual(self.exported_map["start"], [4, 0, 0])
         self.assertEqual(self.exported_map["goal"], [19, 0, 0])
         self.assertTrue(self.exported_map["polys"])
@@ -142,6 +142,7 @@ class DFLATControllerTests(unittest.TestCase):
             "--debug-output-dir", "planning-debug",
         ])
         self.assertEqual(args.model, "acc")
+        self.assertEqual(args.planning_timeout_s, 900.0)
         self.assertEqual(args.vehicle_id, "ego")
         self.assertEqual(args.rear_axle_offset_m, 1.2)
         self.assertEqual(args.spawn_pos, [5, 0, 2])

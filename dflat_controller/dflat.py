@@ -18,7 +18,7 @@ class DFLATController(ControllerWrapper):
     def __init__(
         self, vehicle, xodr_roads, lane_width, spawn_pos, goal_pos, *,
         dflat_root, dflat_python=None, model="car", seed=1, samples=192,
-        diffusion_steps=30, planning_timeout_s=300.0, time_step=0.25,
+        diffusion_steps=30, planning_timeout_s=900.0, time_step=0.25,
         max_speed=3.0, wheelbase=2.70, front_overhang=0.90,
         rear_overhang=1.10, vehicle_width=1.90, steering_limit_deg=35.0,
         rear_axle_offset_m=0.0, buildings=None, trailer=False, debug=False,
@@ -196,7 +196,7 @@ class DFLATController(ControllerWrapper):
         parser.add_argument("--seed", type=int, default=1)
         parser.add_argument("--samples", type=int, default=192)
         parser.add_argument("--diffusion-steps", type=int, default=30)
-        parser.add_argument("--planning-timeout-s", type=float, default=600.0)
+        parser.add_argument("--planning-timeout-s", type=float, default=900.0)
         parser.add_argument("--time-step", type=float, default=0.25)
         parser.add_argument("--max-speed", type=float, default=3.0)
         parser.add_argument("--wheelbase", type=float, default=2.70)

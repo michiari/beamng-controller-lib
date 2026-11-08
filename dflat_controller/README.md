@@ -102,7 +102,7 @@ choose endpoint positions that leave room for the vehicle's full footprint.
 `DFLAT_AIT_ROOT` can supply the checkout path. `--dflat-python` defaults to the
 current interpreter, so a separate environment is optional. Planning uses
 temporary JSON files and a subprocess, with logs streamed to the terminal;
-`--planning-timeout-s` limits the whole subprocess (default 300 seconds).
+`--planning-timeout-s` limits the whole subprocess (default 900 seconds).
 With OpenDRIVE, planning finishes before connecting to BeamNG. Failed searches, collisions,
 goal errors above 1 metre, and heading errors above 15 degrees abort playback.
 Both DFLAT `car` and `acc` models are supported. Trailers are rejected.
